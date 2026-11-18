@@ -54,10 +54,10 @@ export function BranchesPage({
     <div className="grid gap-5">
       <div className="card flex flex-wrap items-end justify-between gap-4 p-5">
         <div>
-          <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+          <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
             Hackathon Case #24 · Multi-Branch / BXM-BXO Budget Optimizer
           </span>
-          <h1 className="m-0 mt-1.5 text-base font-extrabold">
+          <h1 className="m-0 mt-1.5 text-base font-semibold">
             {lang === 'uz'
               ? 'Filiallar kesimida byudjet mablag‘larini optimal taqsimlash'
               : lang === 'ru'
@@ -135,15 +135,15 @@ export function BranchesPage({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="card p-4">
               <div className="text-[11px] font-semibold text-[var(--muted)]">Total Budget Pool</div>
-              <div className="mt-1 text-lg font-extrabold tabular-nums">{fmtMoney(data.totalBudget, lang)}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">{fmtMoney(data.totalBudget, lang)}</div>
             </div>
             <div className="card p-4">
               <div className="text-[11px] font-semibold text-[var(--muted)]">Branches Ranked</div>
-              <div className="mt-1 text-lg font-extrabold tabular-nums">{data.branches.length}</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums">{data.branches.length}</div>
             </div>
             <div className="card p-4">
               <div className="text-[11px] font-semibold text-[var(--muted)]">Expected Optimization Lift</div>
-              <div className="mt-1 text-lg font-extrabold text-[var(--good)] tabular-nums">
+              <div className="mt-1 text-lg font-semibold text-[var(--good)] tabular-nums">
                 +{fmtMoney(data.expectedTotalProfitLift, lang)}
               </div>
             </div>
@@ -155,13 +155,13 @@ export function BranchesPage({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-extrabold text-[var(--accent)]">
+                      <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
                         #{idx + 1} · Score {b.efficiencyScore}/100
                       </span>
-                      <span className="text-sm font-extrabold">{b.name}</span>
+                      <span className="text-sm font-semibold">{b.name}</span>
                       <span className="text-xs text-[var(--muted)]">· {b.districtName[lang]}</span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold tabular-nums ${
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${
                           b.growthPct >= 0
                             ? 'bg-[var(--good-soft)] text-[var(--good)]'
                             : 'bg-[var(--bad-soft)] text-[var(--bad)]'
@@ -177,11 +177,11 @@ export function BranchesPage({
                   <div className="flex flex-wrap gap-5 text-xs tabular-nums">
                     <div>
                       <div className="text-[var(--muted)]">ROI / Margin</div>
-                      <div className="font-extrabold">{b.roiPct}% / {b.netMarginPct}%</div>
+                      <div className="font-semibold">{b.roiPct}% / {b.netMarginPct}%</div>
                     </div>
                     <div>
                       <div className="text-[var(--muted)]">Discipline</div>
-                      <div className="font-extrabold">{b.budgetDisciplineScore}/100</div>
+                      <div className="font-semibold">{b.budgetDisciplineScore}/100</div>
                     </div>
                     <div>
                       <div className="text-[var(--muted)]">Current</div>
@@ -189,11 +189,11 @@ export function BranchesPage({
                     </div>
                     <div>
                       <div className="text-[var(--muted)]">AI Recommended</div>
-                      <div className="font-extrabold text-[var(--accent)]">{fmtMoney(b.recommendedBudget, lang)}</div>
+                      <div className="font-semibold text-[var(--accent)]">{fmtMoney(b.recommendedBudget, lang)}</div>
                     </div>
                     <div>
                       <div className="text-[var(--muted)]">Shift</div>
-                      <div className={`font-extrabold ${b.deltaPct >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
+                      <div className={`font-semibold ${b.deltaPct >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
                         {b.deltaPct >= 0 ? '+' : ''}{b.deltaPct}%
                       </div>
                     </div>

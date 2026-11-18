@@ -1,17 +1,17 @@
 import type { ExpenseCategory, Language } from '@uzbite/shared';
 
 export const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
-  INGREDIENTS: '#f8781d',
-  SALARY: '#3b82f6',
-  UTILITIES: '#eab308',
-  RENT: '#8b5cf6',
-  COMMUNICATION: '#06b6d4',
-  PACKAGING: '#10b981',
-  MARKETING: '#ec4899',
-  DELIVERY: '#f97316',
+  INGREDIENTS: '#ec5180',
+  SALARY: '#8172ff',
+  UTILITIES: '#ff8a47',
+  RENT: '#36b89a',
+  COMMUNICATION: '#3b82f6',
+  PACKAGING: '#1ea04a',
+  MARKETING: '#f472b6',
+  DELIVERY: '#f59e0b',
   EQUIPMENT: '#6366f1',
-  TAXES: '#ef4444',
-  OTHER: '#64748b',
+  TAXES: '#d54c4f',
+  OTHER: '#71717a',
 };
 
 export const CATEGORY_LABELS: Record<ExpenseCategory, Record<Language, string>> = {
@@ -19,13 +19,99 @@ export const CATEGORY_LABELS: Record<ExpenseCategory, Record<Language, string>> 
   PACKAGING: { ru: 'Упаковка', uz: 'Qadoqlash', en: 'Packaging' },
   SALARY: { ru: 'Зарплата (ФОТ)', uz: 'Ish haqi', en: 'Payroll' },
   RENT: { ru: 'Аренда', uz: 'Ijara', en: 'Rent' },
-  UTILITIES: { ru: 'Коммунальные (свет/газ)', uz: 'Kommunal', en: 'Utilities' },
+  UTILITIES: { ru: 'Электричество и ЖКХ', uz: 'Elektr va kommunal', en: 'Electricity & Utilities' },
   COMMUNICATION: { ru: 'Связь и интернет', uz: 'Aloqa va internet', en: 'Communication' },
   MARKETING: { ru: 'Маркетинг', uz: 'Marketing', en: 'Marketing' },
   DELIVERY: { ru: 'Доставка', uz: 'Yetkazish', en: 'Delivery' },
   EQUIPMENT: { ru: 'Оборудование', uz: 'Uskunalar', en: 'Equipment' },
-  TAXES: { ru: 'Налоги', uz: 'Soliqlar', en: 'Taxes' },
+  TAXES: { ru: 'Налоги и сборы', uz: 'Soliqlar va yig‘imlar', en: 'Taxes & Fees' },
   OTHER: { ru: 'Прочее', uz: 'Boshqa', en: 'Other' },
+};
+
+export type ExpenseGroupId = 'ALL' | 'PRIORITY' | 'BASE' | 'ADDITIONAL';
+
+export const PRIORITY_EXPENSE_CATEGORIES: ExpenseCategory[] = ['TAXES', 'UTILITIES', 'COMMUNICATION'];
+export const BASE_EXPENSE_CATEGORIES: ExpenseCategory[] = ['INGREDIENTS', 'SALARY', 'RENT'];
+export const ADDITIONAL_EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  'PACKAGING',
+  'DELIVERY',
+  'EQUIPMENT',
+  'MARKETING',
+  'OTHER',
+];
+
+export function getExpenseGroup(category: ExpenseCategory): Exclude<ExpenseGroupId, 'ALL'> {
+  if (PRIORITY_EXPENSE_CATEGORIES.includes(category)) return 'PRIORITY';
+  if (BASE_EXPENSE_CATEGORIES.includes(category)) return 'BASE';
+  return 'ADDITIONAL';
+}
+
+export const EXPENSE_GROUP_META: Record<
+  ExpenseGroupId,
+  {
+    label: Record<Language, string>;
+    shortLabel: Record<Language, string>;
+    description: Record<Language, string>;
+    categories: ExpenseCategory[];
+    accent: string;
+  }
+> = {
+  ALL: {
+    label: { ru: 'Все', uz: 'Barchasi', en: 'All' },
+    shortLabel: { ru: 'Все', uz: 'Barchasi', en: 'All' },
+    description: {
+      ru: 'Все операционные расходы ресторана',
+      uz: 'Restoranning barcha operatsion xarajatlari',
+      en: 'All restaurant operating expenses',
+    },
+    categories: [...PRIORITY_EXPENSE_CATEGORIES, ...BASE_EXPENSE_CATEGORIES, ...ADDITIONAL_EXPENSE_CATEGORIES],
+    accent: '#09090b',
+  },
+  PRIORITY: {
+    label: {
+      ru: 'Налоги и электричество (Приоритет)',
+      uz: 'Soliqlar va elektr (Ustuvor)',
+      en: 'Taxes & Electricity (Priority)',
+    },
+    shortLabel: { ru: 'Приоритет', uz: 'Ustuvor', en: 'Priority' },
+    description: {
+      ru: 'Налоги, электроэнергия (кВт·ч), газ, вода и связь',
+      uz: 'Soliqlar, elektr energiyasi (kVt·soat), gaz, suv va aloqa',
+      en: 'Taxes, electricity (kWh), gas, water & telecom',
+    },
+    categories: PRIORITY_EXPENSE_CATEGORIES,
+    accent: '#ec5180',
+  },
+  BASE: {
+    label: {
+      ru: 'Базовые (Сырьё, ФОТ, Аренда)',
+      uz: 'Asosiy (Masalliq, Ish haqi, Ijara)',
+      en: 'Base (Ingredients, Payroll, Rent)',
+    },
+    shortLabel: { ru: 'Базовые', uz: 'Asosiy', en: 'Base' },
+    description: {
+      ru: 'Продукты и сырьё, зарплата персонала и аренда',
+      uz: 'Mahsulotlar, xodimlar ish haqi va ijara',
+      en: 'Ingredients, staff payroll, and facility rent',
+    },
+    categories: BASE_EXPENSE_CATEGORIES,
+    accent: '#36b89a',
+  },
+  ADDITIONAL: {
+    label: {
+      ru: 'Дополнительные (Упаковка, Доставка, Оборуд., Маркетинг)',
+      uz: 'Qo‘shimcha (Qadoqlash, Yetkazish, Uskuna, Marketing)',
+      en: 'Additional (Packaging, Delivery, Equip., Marketing)',
+    },
+    shortLabel: { ru: 'Доп.', uz: 'Qo‘sh.', en: 'Additional' },
+    description: {
+      ru: 'Упаковка, доставка, техобслуживание, маркетинг и прочее',
+      uz: 'Qadoqlash, yetkazish, uskunalar, marketing va boshqalar',
+      en: 'Packaging, delivery, equipment, marketing & other',
+    },
+    categories: ADDITIONAL_EXPENSE_CATEGORIES,
+    accent: '#8172ff',
+  },
 };
 
 export type NavTab =
@@ -53,6 +139,22 @@ export const COPY: Record<Language, {
   period30: string;
   period60: string;
   period90: string;
+  periodToday: string;
+  periodYesterday: string;
+  periodLastWeek: string;
+  periodThisMonth: string;
+  periodCustom: string;
+  dateFrom: string;
+  dateTo: string;
+  applyRange: string;
+  allDates: string;
+  activePeriod: string;
+  taxes: string;
+  electricityUtilities: string;
+  priorityBadge: string;
+  verified: string;
+  unverified: string;
+  filteredTotal: string;
   restaurant: string;
   logout: string;
   refresh: string;
@@ -159,6 +261,22 @@ export const COPY: Record<Language, {
     period30: '30 дней',
     period60: '60 дней',
     period90: '90 дней',
+    periodToday: 'Сегодня',
+    periodYesterday: 'Вчера',
+    periodLastWeek: 'Прошлая неделя',
+    periodThisMonth: 'Этот месяц',
+    periodCustom: 'Даты',
+    dateFrom: 'С',
+    dateTo: 'По',
+    applyRange: 'Применить',
+    allDates: 'Все даты',
+    activePeriod: 'Период',
+    taxes: 'Налоги',
+    electricityUtilities: 'Свет и ЖКХ',
+    priorityBadge: 'Приоритет',
+    verified: 'Проверено',
+    unverified: 'На проверке',
+    filteredTotal: 'Итого по выборке',
     restaurant: 'Ресторан',
     logout: 'Выйти',
     refresh: 'Обновить',
@@ -265,6 +383,22 @@ export const COPY: Record<Language, {
     period30: '30 kun',
     period60: '60 kun',
     period90: '90 kun',
+    periodToday: 'Bugun',
+    periodYesterday: 'Kecha',
+    periodLastWeek: 'O‘tgan hafta',
+    periodThisMonth: 'Shu oy',
+    periodCustom: 'Sanalar',
+    dateFrom: 'Dan',
+    dateTo: 'Gacha',
+    applyRange: 'Qo‘llash',
+    allDates: 'Barcha sanalar',
+    activePeriod: 'Davr',
+    taxes: 'Soliqlar',
+    electricityUtilities: 'Elektr va kommunal',
+    priorityBadge: 'Ustuvor',
+    verified: 'Tasdiqlangan',
+    unverified: 'Tekshiruvda',
+    filteredTotal: 'Tanlov jami',
     restaurant: 'Restoran',
     logout: 'Chiqish',
     refresh: 'Yangilash',
@@ -371,6 +505,22 @@ export const COPY: Record<Language, {
     period30: '30 days',
     period60: '60 days',
     period90: '90 days',
+    periodToday: 'Today',
+    periodYesterday: 'Yesterday',
+    periodLastWeek: 'Last week',
+    periodThisMonth: 'This month',
+    periodCustom: 'Dates',
+    dateFrom: 'From',
+    dateTo: 'To',
+    applyRange: 'Apply',
+    allDates: 'All dates',
+    activePeriod: 'Period',
+    taxes: 'Taxes',
+    electricityUtilities: 'Electricity & Utilities',
+    priorityBadge: 'Priority',
+    verified: 'Verified',
+    unverified: 'Unverified',
+    filteredTotal: 'Filtered Total',
     restaurant: 'Restaurant',
     logout: 'Sign out',
     refresh: 'Refresh',

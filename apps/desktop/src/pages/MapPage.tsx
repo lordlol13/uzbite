@@ -9,7 +9,7 @@ function GrowthBadge({ pct }: { pct: number }) {
   const positive = pct >= 0;
   return (
     <span
-      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums ${
+      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
         positive ? 'bg-[var(--good-soft)] text-[var(--good)]' : 'bg-[var(--bad-soft)] text-[var(--bad)]'
       }`}
     >
@@ -52,7 +52,7 @@ export function MapPage({
     <div className="grid gap-5">
       <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
         <div>
-          <h1 className="m-0 text-base font-extrabold">
+          <h1 className="m-0 text-base font-semibold">
             {lang === 'uz'
               ? 'Toshkent tumanlari bo‘yicha buyurtmalar va yetkazish xaritasi'
               : lang === 'ru'
@@ -125,7 +125,7 @@ export function MapPage({
                 {lang === 'uz' ? 'Eng faol tuman' : lang === 'ru' ? 'Топ-источник клиентов' : 'Top Client District'}
               </div>
               <div className="mt-1 flex items-center gap-2">
-                <span className="text-base font-extrabold text-[var(--good)]">
+                <span className="text-base font-semibold text-[var(--good)]">
                   {data.topDistrict ? data.topDistrict.name[lang] : '—'}
                 </span>
                 {data.topDistrict && <GrowthBadge pct={data.topDistrict.growthPct} />}
@@ -142,7 +142,7 @@ export function MapPage({
                 {lang === 'uz' ? 'Yangi filial / marketing uchun hudud' : lang === 'ru' ? 'Зоны роста (далеко от филиалов)' : 'Underserved Growth Zones'}
               </div>
               <div className="mt-1 flex items-center gap-2">
-                <span className="text-base font-extrabold text-[var(--warn)]">
+                <span className="text-base font-semibold text-[var(--warn)]">
                   {data.underservedDistricts[0]?.name[lang] ?? '—'}
                 </span>
                 {data.underservedDistricts[0] && <GrowthBadge pct={data.underservedDistricts[0].growthPct} />}
@@ -158,7 +158,7 @@ export function MapPage({
               <div className="text-[11px] font-semibold text-[var(--muted)]">
                 {lang === 'uz' ? 'Zararli yetkazish tumanlari (#26)' : lang === 'ru' ? 'Убыточная доставка (#26)' : 'Loss-Making Delivery (#26)'}
               </div>
-              <div className="mt-1 text-base font-extrabold text-[var(--bad)]">
+              <div className="mt-1 text-base font-semibold text-[var(--bad)]">
                 {data.lossMakingDeliveryDistricts.length}
               </div>
               <div className="mt-1 text-xs text-[var(--muted)]">
@@ -188,23 +188,23 @@ export function MapPage({
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[11px] text-[var(--muted)]">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2.5 w-6 rounded-sm bg-gradient-to-r from-[#f8781d]/25 to-[#f8781d]" />
+                    <span className="h-2.5 w-6 rounded-full bg-gradient-to-r from-[#ec5180]/25 to-[#ec5180]" />
                     {metric === 'deliveryMargin'
                       ? (lang === 'uz' ? 'Foydali zona' : lang === 'ru' ? 'Прибыльная доставка' : 'Profitable Margin')
                       : (lang === 'uz' ? 'Talab darajasi' : lang === 'ru' ? 'Плотность спроса' : 'Demand Intensity')}
                   </span>
                   {metric === 'deliveryMargin' && (
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-sm bg-[#d13832]/60" />
+                      <span className="h-2.5 w-2.5 rounded-full bg-[#d54c4f]/60" />
                       {lang === 'uz' ? 'Zararli zona' : lang === 'ru' ? 'Убыточная зона' : 'Loss Zone'}
                     </span>
                   )}
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#ec5180]" />
                     {lang === 'uz' ? '~500m issiqlik klasteri' : lang === 'ru' ? 'Кластер ~500м' : '~500m Heat Cell'}
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-full border border-dashed border-[#1f8b52] bg-[#1f8b52]/20" />
+                    <span className="h-2.5 w-2.5 rounded-full border border-dashed border-[#36b89a] bg-[#36b89a]/20" />
                     {lang === 'uz' ? '3.5 km qamrov' : lang === 'ru' ? 'Зона 3.5 км' : '3.5km Branch Zone'}
                   </span>
                 </div>
@@ -218,12 +218,12 @@ export function MapPage({
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+                        <span className="rounded-md bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                           {selectedStat.status}
                         </span>
                         <GrowthBadge pct={selectedStat.growthPct} />
                       </div>
-                      <h2 className="m-0 mt-1.5 text-base font-extrabold">{selectedStat.name[lang]}</h2>
+                      <h2 className="m-0 mt-1.5 text-base font-semibold">{selectedStat.name[lang]}</h2>
                     </div>
                     {selectedDistrictId && (
                       <button
@@ -239,25 +239,25 @@ export function MapPage({
                   <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
                     <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
                       <div className="text-[var(--muted)]">Orders / Share</div>
-                      <div className="mt-0.5 font-extrabold">{selectedStat.orders} ({selectedStat.sharePct}%)</div>
+                      <div className="mt-0.5 font-semibold">{selectedStat.orders} ({selectedStat.sharePct}%)</div>
                     </div>
                     <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
                       <div className="text-[var(--muted)]">Revenue</div>
-                      <div className="mt-0.5 font-extrabold">{fmtCompactMoney(selectedStat.revenue, lang)}</div>
+                      <div className="mt-0.5 font-semibold">{fmtCompactMoney(selectedStat.revenue, lang)}</div>
                     </div>
                     <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
                       <div className="text-[var(--muted)]">Avg Distance / ETA</div>
-                      <div className="mt-0.5 font-extrabold">{selectedStat.avgDistanceKm} km · {selectedStat.avgDeliveryMinutes}m</div>
+                      <div className="mt-0.5 font-semibold">{selectedStat.avgDistanceKm} km · {selectedStat.avgDeliveryMinutes}m</div>
                     </div>
                     <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
                       <div className="text-[var(--muted)]">Delivery Margin</div>
-                      <div className={`mt-0.5 font-extrabold ${selectedStat.deliveryMargin < 0 ? 'text-[var(--bad)]' : 'text-[var(--good)]'}`}>
+                      <div className={`mt-0.5 font-semibold ${selectedStat.deliveryMargin < 0 ? 'text-[var(--bad)]' : 'text-[var(--good)]'}`}>
                         {fmtMoney(selectedStat.deliveryMargin, lang)}
                       </div>
                     </div>
                     <div className="col-span-2 rounded-xl bg-[var(--surface-2)] p-2.5">
                       <div className="text-[var(--muted)]">Nearest Branch</div>
-                      <div className="mt-0.5 font-extrabold">{selectedStat.nearestBranchName}</div>
+                      <div className="mt-0.5 font-semibold">{selectedStat.nearestBranchName}</div>
                     </div>
                   </div>
                 </div>
@@ -291,7 +291,7 @@ export function MapPage({
 
           {/* Full 12 Districts Table */}
           <div className="card p-5">
-            <h2 className="m-0 mb-3 text-sm font-extrabold">
+            <h2 className="m-0 mb-3 text-sm font-semibold">
               {lang === 'uz' ? 'Tumanlar bo‘yicha batafsil statistika' : lang === 'ru' ? 'Сводка по районам Ташкента' : 'Tashkent Districts Breakdown'}
             </h2>
             <div className="overflow-x-auto">

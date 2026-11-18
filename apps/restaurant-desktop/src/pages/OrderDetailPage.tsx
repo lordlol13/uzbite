@@ -180,7 +180,7 @@ export function OrderDetailPage() {
           </button>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 text-xl font-extrabold tabular-nums">Заказ #{order.id.slice(-6)}</h1>
+              <h1 className="m-0 text-xl font-semibold tabular-nums">Заказ #{order.id.slice(-6)}</h1>
               <StatusPill label={os.label} tone={os.tone} />
             </div>
             <div className="mt-0.5 text-xs text-[var(--muted)]">
@@ -236,7 +236,7 @@ export function OrderDetailPage() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
           <div className="card p-5">
-            <h2 className="mt-0 mb-3 text-sm font-extrabold">Состав заказа (исторические цены)</h2>
+            <h2 className="mt-0 mb-3 text-sm font-semibold">Состав заказа (исторические цены)</h2>
             <div className="divide-y divide-[var(--border)]">
               {order.items.map(item => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-2.5 text-xs">
@@ -253,7 +253,7 @@ export function OrderDetailPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="font-extrabold tabular-nums">
+                  <div className="font-semibold tabular-nums">
                     {formatMoney(item.unitPrice * item.quantity, config.language)}
                   </div>
                 </div>
@@ -268,7 +268,7 @@ export function OrderDetailPage() {
                 <span>Доставка</span>
                 <span className="tabular-nums">{formatMoney(order.deliveryFee, config.language)}</span>
               </div>
-              <div className="flex justify-between pt-1 text-sm font-extrabold">
+              <div className="flex justify-between pt-1 text-sm font-semibold">
                 <span>Итого</span>
                 <span className="tabular-nums">{formatMoney(order.total, config.language)}</span>
               </div>
@@ -277,7 +277,7 @@ export function OrderDetailPage() {
 
           <div className="card p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="m-0 text-sm font-extrabold">Доставка и курьер</h2>
+              <h2 className="m-0 text-sm font-semibold">Доставка и курьер</h2>
               {ds && <StatusPill label={ds.label} tone={ds.tone} />}
             </div>
 
@@ -299,7 +299,7 @@ export function OrderDetailPage() {
                   }}
                   className="flex flex-col items-start gap-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left transition hover:border-[var(--accent)]"
                 >
-                  <div className="flex items-center gap-2 text-xs font-extrabold">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
                     <Icon name="ownCourier" size={18} className="text-[var(--accent)]" />
                     Доставка своим курьером
                   </div>
@@ -319,7 +319,7 @@ export function OrderDetailPage() {
                   }}
                   className="flex flex-col items-start gap-1.5 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left transition hover:border-[var(--accent)]"
                 >
-                  <div className="flex items-center gap-2 text-xs font-extrabold">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
                     <Icon name="onDemandCourier" size={18} className="text-[var(--accent)]" />
                     Найти курьера UzBite
                   </div>
@@ -337,7 +337,7 @@ export function OrderDetailPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <span className="font-bold text-[var(--muted)]">Режим: </span>
-                    <span className="font-extrabold">{deliveryModeLabel(delivery.mode)}</span>
+                    <span className="font-semibold">{deliveryModeLabel(delivery.mode)}</span>
                   </div>
                   <span className="font-semibold text-[var(--muted)] tabular-nums">
                     Вознаграждение курьера: {formatMoney(delivery.courierReward, config.language)}
@@ -347,7 +347,7 @@ export function OrderDetailPage() {
                 {delivery.status === 'SEARCHING' && (
                   <div className="rounded-xl border border-[var(--warn)]/40 bg-[var(--warn-soft)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 font-extrabold text-[var(--warn)]">
+                      <div className="flex items-center gap-2 font-semibold text-[var(--warn)]">
                         <Icon name="courierSearch" size={16} />
                         Ищем свободного курьера UzBite…
                       </div>
@@ -395,7 +395,7 @@ export function OrderDetailPage() {
                   <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="font-extrabold">
+                        <div className="font-semibold">
                           Назначенный курьер: {delivery.assignedCourier.name} (@{delivery.assignedCourier.username})
                         </div>
                         <div className="mt-0.5 text-[11px] text-[var(--muted)]">
@@ -473,7 +473,7 @@ export function OrderDetailPage() {
 
         <div className="space-y-5">
           <div className="card p-5 text-xs">
-            <h2 className="mt-0 mb-3 text-sm font-extrabold">Оплата заказа</h2>
+            <h2 className="mt-0 mb-3 text-sm font-semibold">Оплата заказа</h2>
             {order.payment ? (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -535,7 +535,7 @@ export function OrderDetailPage() {
           </div>
 
           <div className="card p-5 text-xs">
-            <h2 className="mt-0 mb-3 text-sm font-extrabold">Покупатель и адрес доставки</h2>
+            <h2 className="mt-0 mb-3 text-sm font-semibold">Покупатель и адрес доставки</h2>
             <div className="space-y-2">
               <div>
                 <span className="text-[var(--muted)]">Получатель: </span>
@@ -582,7 +582,7 @@ export function OrderDetailPage() {
 
           {order.statusHistory.length > 0 && (
             <div className="card p-5 text-xs">
-              <h2 className="mt-0 mb-3 text-sm font-extrabold">Журнал заказа</h2>
+              <h2 className="mt-0 mb-3 text-sm font-semibold">Журнал заказа</h2>
               <div className="space-y-2">
                 {order.statusHistory.map(h => (
                   <div key={h.id} className="flex items-start justify-between gap-2 text-[11px]">
@@ -688,7 +688,7 @@ export function OrderDetailPage() {
                         onChange={() => setSelectedCourierId(c.courierId)}
                       />
                       <div>
-                        <div className="font-extrabold">{c.name}</div>
+                        <div className="font-semibold">{c.name}</div>
                         <div className="text-[11px] text-[var(--muted)]">
                           @{c.username} · Активных заказов: {c.activeLoad}
                         </div>

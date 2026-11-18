@@ -70,7 +70,7 @@ export function ProfilePage() {
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
       <div className="space-y-4 xl:col-span-2">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Профиль ресторана</h1>
+          <h1 className="m-0 text-xl font-semibold">Профиль ресторана</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Изменения отображаются в мобильном приложении покупателей UzBite.
           </p>
@@ -173,7 +173,7 @@ export function ProfilePage() {
       </div>
 
       <div>
-        <div className="mb-2 text-xs font-extrabold uppercase tracking-wider text-[var(--muted)]">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
           Публичный предпросмотр
         </div>
         <div className="card overflow-hidden">
@@ -190,7 +190,7 @@ export function ProfilePage() {
                 className="h-14 w-14 rounded-full border-2 border-[var(--surface)] object-cover"
               />
               <div>
-                <h2 className="m-0 text-base font-extrabold">{name}</h2>
+                <h2 className="m-0 text-base font-semibold">{name}</h2>
                 <StatusPill label={isOpen ? 'Открыт' : 'Закрыт'} tone={isOpen ? 'good' : 'bad'} />
               </div>
             </div>

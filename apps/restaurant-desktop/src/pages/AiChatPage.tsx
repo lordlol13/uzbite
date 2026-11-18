@@ -74,6 +74,54 @@ const SCENARIO_PRESETS: ScenarioPreset[] = [
     },
   },
   {
+    id: 'expenses-nov-15',
+    category: 'audit26',
+    icon: 'receipt',
+    badge: { ru: 'Дата · 15 ноя', uz: 'Sana · 15-noy', en: 'Date · Nov 15' },
+    title: {
+      ru: 'Расходы за 15 ноября',
+      uz: '15-noyabr xarajatlari',
+      en: 'Expenses on November 15',
+    },
+    prompt: {
+      ru: 'Расходы за 15 ноября',
+      uz: '15-noyabr xarajatlari',
+      en: 'Expenses on November 15',
+    },
+  },
+  {
+    id: 'expenses-priority-last-week',
+    category: 'audit26',
+    icon: 'zap',
+    badge: { ru: 'Приоритет', uz: 'Ustuvor', en: 'Priority' },
+    title: {
+      ru: 'Налоги и электричество за прошлую неделю',
+      uz: 'O‘tgan haftadagi soliq va elektr xarajatlari',
+      en: 'Taxes & electricity for last week',
+    },
+    prompt: {
+      ru: 'Налоги и электричество за прошлую неделю',
+      uz: 'O‘tgan haftadagi soliq va elektr xarajatlari',
+      en: 'Taxes & electricity for last week',
+    },
+  },
+  {
+    id: 'expenses-base-add-last-week',
+    category: 'audit26',
+    icon: 'statistics',
+    badge: { ru: 'Группы затрат', uz: 'Xarajat guruhlari', en: 'Cost Groups' },
+    title: {
+      ru: 'Базовые и доп. расходы за прошлую неделю',
+      uz: 'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar',
+      en: 'Base vs additional expenses for last week',
+    },
+    prompt: {
+      ru: 'Базовые и доп. расходы за прошлую неделю',
+      uz: 'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar',
+      en: 'Base vs additional expenses for last week',
+    },
+  },
+  {
     id: 'audit-26',
     category: 'audit26',
     icon: 'receipt',
@@ -252,7 +300,7 @@ function ToolTraceAccordion({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <code className="font-extrabold text-[var(--accent)]">{tr.tool}</code>
+                  <code className="font-semibold text-[var(--accent)]">{tr.tool}</code>
                   <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted)] tabular-nums">
                     {tr.durationMs} ms
                   </span>
@@ -412,22 +460,19 @@ export function AiChatPage() {
 
         <div className="relative flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div className="flex min-w-0 items-start gap-3.5">
-            <div
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm"
-              style={{ background: 'linear-gradient(135deg, #ff8528, #e85d0c)' }}
-            >
-              <Icon name="sparkles" size={22} />
+            <div className="ai-pink-orb animate-orb-breathe flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white">
+              <Icon name="sparkles" size={21} />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="m-0 text-lg font-extrabold tracking-tight">
+                <h1 className="m-0 text-lg font-semibold tracking-tight">
                   {lang === 'uz'
                     ? 'UzBite AI Yordamchi'
                     : lang === 'ru'
                       ? 'AI-Ассистент UzBite'
                       : 'UzBite AI Assistant'}
                 </h1>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-2.5 py-0.5 text-[11px] font-extrabold text-[var(--accent)]">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                   {activeModelMeta.displayName}
                 </span>
@@ -454,7 +499,7 @@ export function AiChatPage() {
                 aria-label="AI Model"
                 value={selectedModel}
                 onChange={e => setSelectedModel(e.target.value)}
-                className="bg-transparent text-xs font-extrabold text-[var(--text)] outline-none"
+                className="bg-transparent text-xs font-semibold text-[var(--text)] outline-none"
               >
                 {modelOptions.map(m => (
                   <option key={m.id} value={m.id} className="bg-[var(--surface)] text-[var(--text)]">
@@ -546,7 +591,7 @@ export function AiChatPage() {
             <button
               type="button"
               onClick={() => navigate('/dashboard')}
-              className="inline-flex items-center gap-1 font-extrabold text-[var(--accent)] hover:underline"
+              className="inline-flex items-center gap-1 font-semibold text-[var(--accent)] hover:underline"
             >
               <span>
                 {lang === 'uz'
@@ -568,7 +613,7 @@ export function AiChatPage() {
             <div>
               <div className="flex items-center gap-2">
                 <Icon name="sliders" size={16} className="text-[var(--accent)]" />
-                <h2 className="m-0 text-sm font-extrabold">
+                <h2 className="m-0 text-sm font-semibold">
                   {lang === 'uz'
                     ? 'Jonli MCP vositalari (Model Context Protocol)'
                     : lang === 'ru'
@@ -601,7 +646,7 @@ export function AiChatPage() {
             <div className="grid gap-4">
               {groupedTools.map(([category, tools]) => (
                 <div key={category} className="grid gap-2">
-                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-[var(--muted)]">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
                     {TOOL_CATEGORY_LABELS[category]?.[lang] ?? category}
                   </div>
                   <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
@@ -614,7 +659,7 @@ export function AiChatPage() {
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2">
-                              <code className="truncate text-xs font-extrabold text-[var(--accent)]">
+                              <code className="truncate text-xs font-semibold text-[var(--accent)]">
                                 {tool.name}
                               </code>
                               <span className="shrink-0 rounded-md bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--muted)]">
@@ -681,7 +726,7 @@ export function AiChatPage() {
             <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3.5">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <code className="text-xs font-extrabold text-[var(--accent)]">{toolOutput.tool}</code>
+                  <code className="text-xs font-semibold text-[var(--accent)]">{toolOutput.tool}</code>
                   <span className="rounded-full bg-[var(--good-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--good)] tabular-nums">
                     {toolOutput.durationMs} ms
                   </span>
@@ -772,7 +817,7 @@ export function AiChatPage() {
                 className="group flex flex-col justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] p-3.5 text-left transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]/40 disabled:opacity-50"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                     <Icon name={preset.icon} size={12} />
                     {preset.badge[lang]}
                   </span>
@@ -783,7 +828,7 @@ export function AiChatPage() {
                   />
                 </div>
                 <div>
-                  <div className="text-xs font-extrabold text-[var(--text)]">
+                  <div className="text-xs font-semibold text-[var(--text)]">
                     {preset.title[lang]}
                   </div>
                   <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-[var(--muted)]">
@@ -828,7 +873,7 @@ export function AiChatPage() {
                   <span className="inline-flex h-6 w-6 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]">
                     <Icon name="bot" size={14} />
                   </span>
-                  <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-[10px] font-extrabold text-[var(--text)]">
+                  <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--text)]">
                     {isGrounded
                       ? `Coarena · ${resp.model}`
                       : resp
@@ -836,7 +881,7 @@ export function AiChatPage() {
                         : 'UzBite AI'}
                   </span>
                   {resp && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--good-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--good)]">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--good-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--good)]">
                       <Icon name="check" size={11} />
                       Grounded
                     </span>
@@ -933,7 +978,7 @@ export function AiChatPage() {
               <Icon name="sparkles" size={16} />
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-extrabold text-[var(--accent)]">
+              <div className="text-xs font-semibold text-[var(--accent)]">
                 {lang === 'uz'
                   ? `${activeModelMeta.displayName} tahlil qilmoqda…`
                   : lang === 'ru'
@@ -957,8 +1002,22 @@ export function AiChatPage() {
       {/* Sticky Command Input */}
       <form
         onSubmit={e => void handleSubmit(e)}
-        className="card sticky bottom-2 z-10 flex flex-col gap-2.5 p-3 shadow-md sm:flex-row sm:items-center"
+        className="card sticky bottom-2 z-10 flex flex-col gap-2 p-3 shadow-md"
       >
+        <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto">
+          {SCENARIO_PRESETS.slice(0, 3).map(preset => (
+            <button
+              key={preset.id}
+              type="button"
+              disabled={busy}
+              onClick={() => void askQuestion(preset.prompt[lang])}
+              className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1 text-[11px] font-medium text-[var(--text)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+            >
+              {preset.prompt[lang]}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
         <div className="relative flex flex-1 items-center">
           <Icon
             name="sparkles"
@@ -996,6 +1055,7 @@ export function AiChatPage() {
                   : 'Send'}
           </span>
         </button>
+        </div>
       </form>
     </div>
   );

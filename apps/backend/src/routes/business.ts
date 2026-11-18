@@ -21,9 +21,16 @@ import {
   getHourlyHeatmap,
   getRevenueTimeseries,
   invalidateBusinessCache,
+  resolveDateRange,
   runRestaurantAnalysis,
 } from '../services/business-analytics.js';
-import { classifyExpenseText } from '../services/finance-analysis.js';
+import { parseDatePeriodFromQuestion } from '../services/date-period-parser.js';
+import {
+  ADDITIONAL_EXPENSE_CATEGORIES,
+  BASE_EXPENSE_CATEGORIES,
+  classifyExpenseText,
+  PRIORITY_EXPENSE_CATEGORIES,
+} from '../services/finance-analysis.js';
 import {
   answerFinancialQuestion,
   extractInvoiceDraftFromTextOrImage,
@@ -309,7 +316,9 @@ businessRouter.post('/suppliers', async (req, res) => {
 const expenseListQuerySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
+  period: z.string().trim().max(120).optional(),
   category: z.enum(EXPENSE_CATEGORIES).optional(),
+  group: z.enum(['priority', 'base', 'additional']).optional(),
   supplierId: z.string().optional(),
   q: z.string().trim().max(120).optional(),
   page: z.coerce.number().int().min(1).max(10000).default(1),
@@ -359,15 +368,39 @@ function serializeExpense(e: {
 businessRouter.get('/expenses', async (req, res) => {
   const { restaurant } = await resolveBusinessContext(req);
   const query = expenseListQuerySchema.parse(req.query);
+  const parsedFromPeriod = query.period
+    ? parseDatePeriodFromQuestion(query.period)
+    : query.from && !/^\d{4}-\d{2}-\d{2}/.test(query.from)
+      ? parseDatePeriodFromQuestion(query.from)
+      : null;
+  const effectiveFrom = parsedFromPeriod?.from ?? query.from;
+  const effectiveTo = parsedFromPeriod?.to ?? query.to;
+  const groupCategories =
+    query.group === 'priority'
+      ? PRIORITY_EXPENSE_CATEGORIES
+      : query.group === 'base'
+        ? BASE_EXPENSE_CATEGORIES
+        : query.group === 'additional'
+          ? ADDITIONAL_EXPENSE_CATEGORIES
+          : null;
+
   const where: Prisma.ExpenseWhereInput = {
     restaurantId: restaurant.id,
-    ...(query.category ? { category: query.category as PrismaExpenseCategory } : {}),
+    ...(query.category
+      ? { category: query.category as PrismaExpenseCategory }
+      : groupCategories
+        ? { category: { in: groupCategories as PrismaExpenseCategory[] } }
+        : {}),
     ...(query.supplierId ? { supplierId: query.supplierId } : {}),
-    ...(query.from || query.to
+    ...(effectiveFrom || effectiveTo
       ? {
           spentAt: {
-            ...(query.from ? { gte: new Date(query.from.length <= 10 ? `${query.from}T00:00:00.000Z` : query.from) } : {}),
-            ...(query.to ? { lte: new Date(query.to.length <= 10 ? `${query.to}T23:59:59.999Z` : query.to) } : {}),
+            ...(effectiveFrom
+              ? { gte: new Date(effectiveFrom.length <= 10 ? `${effectiveFrom}T00:00:00.000Z` : effectiveFrom) }
+              : {}),
+            ...(effectiveTo
+              ? { lte: new Date(effectiveTo.length <= 10 ? `${effectiveTo}T23:59:59.999Z` : effectiveTo) }
+              : {}),
           },
         }
       : {}),
@@ -806,12 +839,38 @@ const askSchema = z.object({
 businessRouter.post('/analysis/ask', async (req, res) => {
   const { restaurant } = await resolveBusinessContext(req);
   const { question, from, to } = askSchema.parse(req.body);
-  const analysis = await runRestaurantAnalysis(restaurant.id, from, to);
+  const parsedPeriod = parseDatePeriodFromQuestion(question);
+  const effectiveFrom = parsedPeriod?.from ?? from;
+  const effectiveTo = parsedPeriod?.to ?? to;
+  const range = resolveDateRange(effectiveFrom, effectiveTo);
+  const [analysis, periodExpenses] = await Promise.all([
+    runRestaurantAnalysis(restaurant.id, effectiveFrom, effectiveTo),
+    db.expense.findMany({
+      where: { restaurantId: restaurant.id, spentAt: { gte: range.from, lte: range.to } },
+      include: { supplier: { select: { name: true } } },
+      orderBy: [{ spentAt: 'desc' }, { amount: 'desc' }],
+    }),
+  ]);
   const answer = await answerFinancialQuestion({
     question,
     restaurantName: restaurant.name,
     overview: analysis.overview,
     findings: analysis.findings,
+    expenses: periodExpenses.map(e => ({
+      id: e.id,
+      supplierId: e.supplierId,
+      supplierName: e.supplier?.name ?? null,
+      category: e.category,
+      itemName: e.itemName,
+      description: e.description,
+      amount: e.amount.toNumber(),
+      quantity: e.quantity ? e.quantity.toNumber() : null,
+      unit: e.unit,
+      unitPrice: e.unitPrice ? e.unitPrice.toNumber() : null,
+      invoiceNumber: e.invoiceNumber,
+      spentAt: e.spentAt,
+    })),
+    resolvedPeriod: parsedPeriod,
   });
   res.json({ data: answer });
 });
@@ -922,16 +981,18 @@ const mcpToolCallSchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   month: z.string().optional(),
+  period: z.string().optional(),
 }).strict();
 
 businessRouter.post('/agent/tools/call', async (req, res) => {
   const { restaurant } = await resolveBusinessContext(req);
   const input = mcpToolCallSchema.parse(req.body);
+  const parsed = input.period ? parseDatePeriodFromQuestion(input.period) : null;
   const result = await executeMcpTool(input.name, input.arguments ?? {}, {
     restaurantId: restaurant.id,
-    from: input.from,
-    to: input.to,
-    month: input.month,
+    from: parsed?.from ?? input.from,
+    to: parsed?.to ?? input.to,
+    month: parsed?.month ?? input.month,
   });
   res.json({ data: { tool: input.name, result } });
 });

@@ -2,11 +2,170 @@ import type {
   AiOptimizationReport,
   AiRecommendation,
   BusinessKpiOverview,
+  CategoryBreakdownItem,
   ExpenseCategory,
   ExpenseClassificationResult,
   Finding,
   Language,
 } from '@uzbite/shared';
+
+export type ExpensePriorityTier = 'PRIORITY' | 'BASE' | 'ADDITIONAL';
+
+export const PRIORITY_EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+  'TAXES',
+  'UTILITIES',
+  'COMMUNICATION',
+];
+
+export const BASE_EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+  'INGREDIENTS',
+  'SALARY',
+  'RENT',
+];
+
+export const ADDITIONAL_EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+  'PACKAGING',
+  'DELIVERY',
+  'EQUIPMENT',
+  'MARKETING',
+  'OTHER',
+];
+
+const PRIORITY_CAT_SET = new Set<ExpenseCategory>(PRIORITY_EXPENSE_CATEGORIES);
+const BASE_CAT_SET = new Set<ExpenseCategory>(BASE_EXPENSE_CATEGORIES);
+
+export function getExpensePriorityTier(category: ExpenseCategory): ExpensePriorityTier {
+  if (PRIORITY_CAT_SET.has(category)) return 'PRIORITY';
+  if (BASE_CAT_SET.has(category)) return 'BASE';
+  return 'ADDITIONAL';
+}
+
+export function expensePriorityLabel(tier: ExpensePriorityTier, lang: Language): string {
+  if (tier === 'PRIORITY') {
+    return lang === 'ru' ? 'Приоритет' : lang === 'uz' ? 'Ustuvor' : 'Priority';
+  }
+  if (tier === 'BASE') {
+    return lang === 'ru' ? 'Базовые' : lang === 'uz' ? 'Asosiy' : 'Base';
+  }
+  return lang === 'ru' ? 'Дополнительные' : lang === 'uz' ? 'Qo‘shimcha' : 'Additional';
+}
+
+export function isElectricityExpense(exp: {
+  category?: ExpenseCategory;
+  itemName?: string;
+  description?: string;
+  unit?: string | null;
+}): boolean {
+  const unitLower = (exp.unit ?? '').toLowerCase();
+  if (/(?:квт|kwh|kw\b)/i.test(unitLower)) return true;
+  const text = `${exp.itemName ?? ''} ${exp.description ?? ''}`.toLowerCase();
+  return /(электр|рэс|свет|трансформатор|квт|elektr|svet|electric|power\s*grid|kwh)/i.test(text);
+}
+
+export interface PriorityExpenseSummary {
+  revenue: number;
+  totalExpenses: number;
+  taxesTotal: number;
+  taxesPctOfRevenue: number;
+  taxesShareOfExpensesPct: number;
+  utilitiesTotal: number;
+  utilitiesOnlyTotal: number;
+  communicationTotal: number;
+  utilitiesPctOfRevenue: number;
+  electricityTotal: number;
+  electricityKwh: number;
+  electricityAvgTariffPerKwh: number | null;
+  priorityTotal: number;
+  priorityPctOfRevenue: number;
+  prioritySharePct: number;
+  baseTotal: number;
+  baseSharePct: number;
+  additionalTotal: number;
+  additionalSharePct: number;
+}
+
+export function computePriorityExpenseSummary(params: {
+  overview?: BusinessKpiOverview;
+  categoryBreakdown?: CategoryBreakdownItem[];
+  expenses?: Array<
+    Pick<AnalysisExpenseInput, 'category' | 'itemName' | 'description' | 'amount' | 'quantity' | 'unit'>
+  >;
+}): PriorityExpenseSummary {
+  const revenue = params.overview?.revenue ?? 0;
+  const breakdown = params.categoryBreakdown ?? params.overview?.categoryBreakdown ?? [];
+  const expenses = params.expenses ?? [];
+
+  const catMap = new Map<ExpenseCategory, number>();
+  if (expenses.length > 0) {
+    for (const e of expenses) {
+      catMap.set(e.category, (catMap.get(e.category) ?? 0) + e.amount);
+    }
+  } else {
+    for (const c of breakdown) {
+      catMap.set(c.category, (catMap.get(c.category) ?? 0) + c.amount);
+    }
+  }
+
+  let electricityTotal = 0;
+  let electricityKwh = 0;
+  for (const e of expenses) {
+    if (e.category === 'UTILITIES' && isElectricityExpense(e)) {
+      electricityTotal += e.amount;
+      if (e.quantity !== null && e.quantity > 0 && /(?:квт|kwh|kw\b)/i.test(e.unit ?? '')) {
+        electricityKwh += e.quantity;
+      }
+    }
+  }
+
+  const taxesTotal = Math.round(catMap.get('TAXES') ?? 0);
+  const utilitiesOnlyTotal = Math.round(catMap.get('UTILITIES') ?? 0);
+  const communicationTotal = Math.round(catMap.get('COMMUNICATION') ?? 0);
+  const utilitiesTotal = utilitiesOnlyTotal + communicationTotal;
+
+  const baseTotal = Math.round(
+    (catMap.get('INGREDIENTS') ?? 0) +
+      (catMap.get('SALARY') ?? 0) +
+      (catMap.get('RENT') ?? 0),
+  );
+  const additionalTotal = Math.round(
+    (catMap.get('PACKAGING') ?? 0) +
+      (catMap.get('DELIVERY') ?? 0) +
+      (catMap.get('EQUIPMENT') ?? 0) +
+      (catMap.get('MARKETING') ?? 0) +
+      (catMap.get('OTHER') ?? 0),
+  );
+  const priorityTotal = taxesTotal + utilitiesTotal;
+  const computedSum = priorityTotal + baseTotal + additionalTotal;
+  const totalExpenses = Math.round(
+    expenses.length > 0 ? computedSum : (params.overview?.totalExpenses ?? computedSum),
+  );
+
+  const pctRev = (v: number) => (revenue > 0 ? Number(((v / revenue) * 100).toFixed(1)) : 0);
+  const pctExp = (v: number) => (totalExpenses > 0 ? Number(((v / totalExpenses) * 100).toFixed(1)) : 0);
+
+  return {
+    revenue: Math.round(revenue),
+    totalExpenses,
+    taxesTotal,
+    taxesPctOfRevenue: pctRev(taxesTotal),
+    taxesShareOfExpensesPct: pctExp(taxesTotal),
+    utilitiesTotal,
+    utilitiesOnlyTotal,
+    communicationTotal,
+    utilitiesPctOfRevenue: pctRev(utilitiesTotal),
+    electricityTotal: Math.round(electricityTotal),
+    electricityKwh: Number(electricityKwh.toFixed(1)),
+    electricityAvgTariffPerKwh:
+      electricityKwh > 0 ? Math.round(electricityTotal / electricityKwh) : null,
+    priorityTotal,
+    priorityPctOfRevenue: pctRev(priorityTotal),
+    prioritySharePct: pctExp(priorityTotal),
+    baseTotal,
+    baseSharePct: pctExp(baseTotal),
+    additionalTotal,
+    additionalSharePct: pctExp(additionalTotal),
+  };
+}
 
 export interface AnalysisExpenseInput {
   id: string;
@@ -172,9 +331,9 @@ const CATEGORY_KEYWORDS: Record<ExpenseCategory, { keywords: string[]; weight: n
   UTILITIES: {
     weight: 1.15,
     keywords: [
-      'электроэнерг', 'электр', 'рэс', 'тэц', 'свет', 'газ', 'водоснаб', 'вода', 'воду', 'воды', 'водой', 'водоканал', 'канализац', 'квт', 'коммунал', 'отоплен', 'вентиляц', 'счётчик', 'счетчик',
-      'elektr', 'energiya', 'gaz', 'suv', 'kommunal', 'svet',
-      'electricity', 'power', 'water', 'gas', 'utilities', 'utility', 'energy',
+      'электроэнерг', 'электр', 'рэс', 'тэц', 'свет', 'газ', 'водоснаб', 'вода', 'воду', 'воды', 'водой', 'водоканал', 'канализац', 'квт', 'квт·ч', 'квтч', 'худудгаз', 'сувсоз', 'трансформатор', 'мусор', 'жироуловител', 'коммунал', 'отоплен', 'вентиляц', 'счётчик', 'счетчик',
+      'elektr', 'energiya', 'gaz', 'suv', 'hududgaz', 'suvsoz', 'kommunal', 'svet',
+      'electricity', 'power', 'water', 'gas', 'utilities', 'utility', 'energy', 'kwh',
     ],
   },
   COMMUNICATION: {
@@ -245,8 +404,8 @@ const CATEGORY_KEYWORDS: Record<ExpenseCategory, { keywords: string[]; weight: n
   TAXES: {
     weight: 1.15,
     keywords: [
-      'налог', 'ндс', 'гнк', 'енп', 'пошлин', 'сбор', 'госбюджет', 'социальный налог',
-      'soliq', 'qqs', 'boj',
+      'налог', 'ндс', 'гнк', 'енп', 'есп', 'ндфл', 'инпс', 'соцналог', 'налог с оборота', 'торговый сбор', 'земельный налог', 'пошлин', 'сбор', 'госбюджет', 'социальный налог',
+      'soliq', 'qqs', 'boj', 'aylanma', 'jshdsh', 'ijtimoiy soliq', 'daromad solig', 'inps',
       'tax', 'taxes', 'vat', 'duty', 'fiscal',
     ],
   },
@@ -892,6 +1051,103 @@ export function analyzeFinancialData(input: AnalysisEngineInput): Finding[] {
     });
   }
 
+  // 10b. HIGH_TAX_BURDEN (Priority: TAXES > 14% of revenue)
+  const prioritySummary = computePriorityExpenseSummary({
+    overview: input.overview,
+    expenses: input.expensesPeriod,
+  });
+  if (input.overview.revenue > 0 && prioritySummary.taxesTotal > 0 && prioritySummary.taxesPctOfRevenue > 14) {
+    const excessTax = Math.max(0, Math.round(prioritySummary.taxesTotal - input.overview.revenue * 0.12));
+    findings.push({
+      id: 'high-tax-burden',
+      kind: 'RISK',
+      code: 'HIGH_TAX_BURDEN',
+      severity: prioritySummary.taxesPctOfRevenue > 18 ? 'high' : 'medium',
+      category: 'TAXES',
+      title: {
+        ru: `Высокая налоговая нагрузка (${prioritySummary.taxesPctOfRevenue.toFixed(1)}% от выручки)`,
+        uz: `Yuqori soliq yuki (tushumning ${prioritySummary.taxesPctOfRevenue.toFixed(1)}%)`,
+        en: `Elevated tax burden (${prioritySummary.taxesPctOfRevenue.toFixed(1)}% of revenue)`,
+      },
+      detail: {
+        ru: `Налоги и сборы составили ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue.toFixed(1)}% выручки, ${prioritySummary.taxesShareOfExpensesPct.toFixed(1)}% всех расходов).`,
+        uz: `Soliqlar va yig‘imlar ${fmtUZS(prioritySummary.taxesTotal)} ni tashkil etdi (tushumning ${prioritySummary.taxesPctOfRevenue.toFixed(1)}%).`,
+        en: `Taxes & fees reached ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue.toFixed(1)}% of revenue, ${prioritySummary.taxesShareOfExpensesPct.toFixed(1)}% of expenses).`,
+      },
+      recommendation: {
+        ru: 'Сверьте вычеты входящего НДС по электронным счетам-фактурам и проверьте налоговый режим с бухгалтером.',
+        uz: 'Elektron hisob-fakturalar bo‘yicha QQS hisobga olinishi va soliq rejimini buxgalter bilan tekshiring.',
+        en: 'Reconcile input VAT credits against e-invoices and review tax regime optimization with your accountant.',
+      },
+      amountImpact: excessTax,
+      metrics: {
+        taxesTotal: prioritySummary.taxesTotal,
+        taxesPctOfRevenue: prioritySummary.taxesPctOfRevenue,
+      },
+    });
+  }
+
+  // 10c. HIGH_ELECTRICITY_COST (Priority: Electricity > 4% of revenue or > 25% spike vs prev period)
+  const prevElectricityTotal = Math.round(
+    input.expensesPrevPeriod
+      .filter(e => e.category === 'UTILITIES' && isElectricityExpense(e))
+      .reduce((s, e) => s + e.amount, 0),
+  );
+  const elecPctRev =
+    input.overview.revenue > 0 ? (prioritySummary.electricityTotal / input.overview.revenue) * 100 : 0;
+  const elecGrowth =
+    prevElectricityTotal > 0 ? (prioritySummary.electricityTotal - prevElectricityTotal) / prevElectricityTotal : 0;
+  if (prioritySummary.electricityTotal > 0 && (elecPctRev > 4 || elecGrowth > 0.25)) {
+    const targetElec =
+      prevElectricityTotal > 0
+        ? prevElectricityTotal * 1.1
+        : input.overview.revenue > 0
+          ? input.overview.revenue * 0.03
+          : prioritySummary.electricityTotal * 0.85;
+    const excessElec = Math.max(0, Math.round(prioritySummary.electricityTotal - targetElec));
+    if (excessElec > 0) {
+      const kwhTextRu =
+        prioritySummary.electricityKwh > 0
+          ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} кВт·ч)`
+          : '';
+      const kwhTextUz =
+        prioritySummary.electricityKwh > 0
+          ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} kVt·soat)`
+          : '';
+      const kwhTextEn =
+        prioritySummary.electricityKwh > 0
+          ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} kWh)`
+          : '';
+      findings.push({
+        id: 'high-electricity-cost',
+        kind: 'INEFFICIENCY',
+        code: 'HIGH_ELECTRICITY_COST',
+        severity: elecPctRev > 6 || elecGrowth > 0.5 ? 'high' : 'medium',
+        category: 'UTILITIES',
+        title: {
+          ru: `Приоритет: высокий расход электроэнергии (${fmtUZS(prioritySummary.electricityTotal)})${kwhTextRu}`,
+          uz: `Ustuvor: elektr energiyasi sarfi yuqori (${fmtUZS(prioritySummary.electricityTotal)})${kwhTextUz}`,
+          en: `Priority: high electricity spend (${fmtUZS(prioritySummary.electricityTotal)})${kwhTextEn}`,
+        },
+        detail: {
+          ru: `Затраты на электроэнергию составили ${fmtUZS(prioritySummary.electricityTotal)}${kwhTextRu}${input.overview.revenue > 0 ? ` (${elecPctRev.toFixed(1)}% от выручки)` : ''}.`,
+          uz: `Elektr energiyasi xarajatlari ${fmtUZS(prioritySummary.electricityTotal)}${kwhTextUz}${input.overview.revenue > 0 ? ` (tushumning ${elecPctRev.toFixed(1)}%)` : ''} ni tashkil etdi.`,
+          en: `Electricity costs totaled ${fmtUZS(prioritySummary.electricityTotal)}${kwhTextEn}${input.overview.revenue > 0 ? ` (${elecPctRev.toFixed(1)}% of revenue)` : ''}.`,
+        },
+        recommendation: {
+          ru: 'Проверьте ночной и пиковый тарифы РЭС, уплотнители холодильных камер и график работы тепловых печей.',
+          uz: 'Tungi/kunduzgi elektr tariflarini, sovutgich kameralari va pechlar ish rejimini tekshiring.',
+          en: 'Audit peak vs off-peak electricity tariffs, cold-room seals, and kitchen oven schedules.',
+        },
+        amountImpact: excessElec,
+        metrics: {
+          electricityTotal: prioritySummary.electricityTotal,
+          electricityKwh: prioritySummary.electricityKwh,
+        },
+      });
+    }
+  }
+
   // 11. SUPPLIER_PRICE_SPIKE (unitPrice jumped > 15% over 60d median for same supplier+item)
   const bySupItem = new Map<string, AnalysisExpenseInput[]>();
   for (const exp of input.expensesAll90d) {
@@ -1149,9 +1405,19 @@ export function analyzeFinancialData(input: AnalysisEngineInput): Finding[] {
   }
 
   const severityRank: Record<'high' | 'medium' | 'low', number> = { high: 3, medium: 2, low: 1 };
+  const isPriorityFinding = (f: Finding) =>
+    f.category === 'TAXES' ||
+    f.category === 'UTILITIES' ||
+    f.category === 'COMMUNICATION' ||
+    f.code === 'ADMIN_UTILITY_SPIKE' ||
+    f.code === 'HIGH_TAX_BURDEN' ||
+    f.code === 'HIGH_ELECTRICITY_COST';
+
   findings.sort((a, b) => {
     const rankDiff = severityRank[b.severity] - severityRank[a.severity];
     if (rankDiff !== 0) return rankDiff;
+    const prioDiff = Number(isPriorityFinding(b)) - Number(isPriorityFinding(a));
+    if (prioDiff !== 0) return prioDiff;
     return b.amountImpact - a.amountImpact;
   });
   return findings;
@@ -1162,6 +1428,7 @@ const NON_CASH_SAVING_CODES = new Set([
   'FUTURE_OR_INVALID_DATE',
   'HIGH_CANCELLATION',
   'BUDGET_FORECAST_OVERRUN',
+  'HIGH_TAX_BURDEN',
 ]);
 
 const ITEM_EXPENSE_CODES = new Set([
@@ -1176,6 +1443,7 @@ const SINGLE_CAT_MACRO_CODES = new Set([
   'HIGH_FOOD_COST',
   'KITCHEN_COGS_VARIANCE',
   'HIGH_LABOR_COST',
+  'HIGH_ELECTRICITY_COST',
   'CATEGORY_GROWTH_OUTPACES_REVENUE',
   'BUDGET_OVERRUN',
 ]);
@@ -1291,13 +1559,40 @@ export function buildHeuristicOptimizationReport(overview: BusinessKpiOverview, 
         ? { ru: 'Требуется оптимизация расходов', uz: 'Xarajatlarni optimallashtirish kerak', en: 'Optimization Needed' }
         : { ru: 'Критический уровень ошибок и перерасхода', uz: 'Xatolar va ortiqcha xarajatlar yuqori', en: 'Critical Cost & Error Alerts' };
 
+  const prioritySummary = computePriorityExpenseSummary({ overview });
+
   const executiveSummary: Record<Language, string> = {
-    ru: `Обнаружено ${errorCount} ошибок в финансовом учёте, ${inefficiencyCount} неэффективных статей расхода и ${riskCount} бюджетных рисков. Совокупный эффект от устранения ошибок и оптимизации закупок и коммунальных трат оценивается в ${fmtUZS(totalPotentialSavingUZS)}.`,
-    uz: `Moliyaviy hisobda ${errorCount} ta xatolik, ${inefficiencyCount} ta samarasiz xarajat va ${riskCount} ta byudjet xavfi aniqlandi. Xatolarni tuzatish va xarajatlarni optimallashtirish orqali ${fmtUZS(totalPotentialSavingUZS)} tejash mumkin.`,
-    en: `Detected ${errorCount} accounting errors, ${inefficiencyCount} operational inefficiencies, and ${riskCount} budget risks. Resolving them unlocks an estimated ${fmtUZS(totalPotentialSavingUZS)} in savings and recovered margin.`,
+    ru: `Приоритетный контроль: налоги ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% выручки), электричество и коммунальные ${fmtUZS(prioritySummary.utilitiesTotal)} (${prioritySummary.utilitiesPctOfRevenue}% выручки). Базовые расходы: ${fmtUZS(prioritySummary.baseTotal)}, дополнительные: ${fmtUZS(prioritySummary.additionalTotal)}. Обнаружено ${errorCount} ошибок, ${inefficiencyCount} неэффективных статей и ${riskCount} рисков (потенциал экономии ${fmtUZS(totalPotentialSavingUZS)}).`,
+    uz: `Ustuvor nazorat: soliqlar ${fmtUZS(prioritySummary.taxesTotal)} (tushumning ${prioritySummary.taxesPctOfRevenue}%), elektr va kommunal ${fmtUZS(prioritySummary.utilitiesTotal)} (${prioritySummary.utilitiesPctOfRevenue}%). Asosiy xarajatlar: ${fmtUZS(prioritySummary.baseTotal)}, qo‘shimcha: ${fmtUZS(prioritySummary.additionalTotal)}. ${errorCount} ta xatolik, ${inefficiencyCount} ta samarasiz xarajat va ${riskCount} ta xavf aniqlandi (tejash ${fmtUZS(totalPotentialSavingUZS)}).`,
+    en: `Priority spotlight: Taxes ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% of revenue), Electricity & Utilities ${fmtUZS(prioritySummary.utilitiesTotal)} (${prioritySummary.utilitiesPctOfRevenue}% of revenue). Base expenses: ${fmtUZS(prioritySummary.baseTotal)}, Additional: ${fmtUZS(prioritySummary.additionalTotal)}. Found ${errorCount} errors, ${inefficiencyCount} inefficiencies, and ${riskCount} risks (savings potential ${fmtUZS(totalPotentialSavingUZS)}).`,
   };
 
-  const recommendations: AiRecommendation[] = findings.slice(0, 6).map((f, index) => ({
+  const prioritySortedFindings = [...findings].sort((a, b) => {
+    const aPrio =
+      a.category === 'TAXES'
+        ? 3
+        : a.category === 'UTILITIES' || a.category === 'COMMUNICATION' || a.code === 'ADMIN_UTILITY_SPIKE'
+          ? 2
+          : getExpensePriorityTier(a.category ?? 'OTHER') === 'BASE'
+            ? 1
+            : 0;
+    const bPrio =
+      b.category === 'TAXES'
+        ? 3
+        : b.category === 'UTILITIES' || b.category === 'COMMUNICATION' || b.code === 'ADMIN_UTILITY_SPIKE'
+          ? 2
+          : getExpensePriorityTier(b.category ?? 'OTHER') === 'BASE'
+            ? 1
+            : 0;
+    if (a.severity !== b.severity) {
+      const rank: Record<'high' | 'medium' | 'low', number> = { high: 3, medium: 2, low: 1 };
+      return rank[b.severity] - rank[a.severity];
+    }
+    if (aPrio !== bPrio) return bPrio - aPrio;
+    return b.amountImpact - a.amountImpact;
+  });
+
+  const recommendations: AiRecommendation[] = prioritySortedFindings.slice(0, 6).map((f, index) => ({
     id: `rec-${index + 1}-${f.code}`,
     priority: f.severity,
     title: f.title,
@@ -1305,6 +1600,60 @@ export function buildHeuristicOptimizationReport(overview: BusinessKpiOverview, 
     expectedSavingUZS: f.amountImpact,
     findingCodes: [f.code],
   }));
+
+  if (
+    prioritySummary.taxesTotal > 0 &&
+    !recommendations.some(r => r.findingCodes.includes('HIGH_TAX_BURDEN') || r.title.en.includes('Tax'))
+  ) {
+    const taxRec: AiRecommendation = {
+      id: 'rec-priority-taxes',
+      priority: 'high',
+      title: {
+        ru: `Приоритет: налоговая нагрузка ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% выручки)`,
+        uz: `Ustuvor: soliq yuki ${fmtUZS(prioritySummary.taxesTotal)} (tushumning ${prioritySummary.taxesPctOfRevenue}%)`,
+        en: `Priority: Tax load ${fmtUZS(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% of revenue)`,
+      },
+      action: {
+        ru: 'Контролируйте своевременную уплату НДС/ЕНП и проверяйте входящие ЭСФ для зачёта налогов.',
+        uz: 'QQS/aylanma soliq to‘lovlari va kiruvchi EHF hisob-fakturalarni muntazam tekshiring.',
+        en: 'Track VAT/turnover tax obligations on schedule and verify incoming e-invoices for input credits.',
+      },
+      expectedSavingUZS: 0,
+      findingCodes: ['TAX_PRIORITY_MONITOR'],
+    };
+    recommendations.unshift(taxRec);
+    if (recommendations.length > 6) recommendations.pop();
+  }
+
+  if (
+    prioritySummary.utilitiesTotal > 0 &&
+    !recommendations.some(
+      r =>
+        r.findingCodes.includes('HIGH_ELECTRICITY_COST') ||
+        r.findingCodes.includes('ADMIN_UTILITY_SPIKE') ||
+        r.title.en.includes('Utility') ||
+        r.title.en.includes('Electricity'),
+    )
+  ) {
+    const utilRec: AiRecommendation = {
+      id: 'rec-priority-utilities',
+      priority: 'high',
+      title: {
+        ru: `Приоритет: электричество и коммунальные ${fmtUZS(prioritySummary.utilitiesTotal)} (${prioritySummary.utilitiesPctOfRevenue}% выручки)`,
+        uz: `Ustuvor: elektr va kommunal ${fmtUZS(prioritySummary.utilitiesTotal)} (tushumning ${prioritySummary.utilitiesPctOfRevenue}%)`,
+        en: `Priority: Electricity & Utilities ${fmtUZS(prioritySummary.utilitiesTotal)} (${prioritySummary.utilitiesPctOfRevenue}% of revenue)`,
+      },
+      action: {
+        ru: 'Сверяйте показания счётчиков кВт·ч РЭС по сменам и отключайте неиспользуемое тепловое оборудование.',
+        uz: 'Elektr hisoblagich (kVt·soat) ko‘rsatkichlarini smenalar kesimida nazorat qiling.',
+        en: 'Monitor kWh meter logs per shift and power down idle thermal kitchen equipment.',
+      },
+      expectedSavingUZS: 0,
+      findingCodes: ['UTILITY_PRIORITY_MONITOR'],
+    };
+    recommendations.unshift(utilRec);
+    if (recommendations.length > 6) recommendations.pop();
+  }
 
   if (recommendations.length === 0 && overview.revenue > 0) {
     recommendations.push({

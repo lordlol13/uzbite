@@ -1,20 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { BusinessKpiOverview, ExpenseCategory } from '@uzbite/shared';
+import type { AgentClientAction, BusinessKpiOverview, ExpenseCategory } from '@uzbite/shared';
 import {
   analyzeFinancialData,
   buildHeuristicOptimizationReport,
   calculateDeduplicatedSavings,
   classifyExpenseText,
   coefficientOfVariation,
+  computePriorityExpenseSummary,
+  getExpensePriorityTier,
   linearRegressionSlope,
   mad,
   modifiedZScore,
   stddev,
   theilSenSlope,
   type AnalysisEngineInput,
+  type AnalysisExpenseInput,
 } from './finance-analysis.js';
 import { resolveDateRange } from './business-analytics.js';
+import { parseDatePeriodFromQuestion } from './date-period-parser.js';
+import {
+  buildDeterministicAgentAnswer,
+  buildPriorityExpenseBlocks,
+  detectQuestionIntents,
+} from './finance-agent.js';
 import {
   answerFinancialQuestion,
   extractInvoiceDraftFromTextOrImage,
@@ -529,6 +538,294 @@ test('extractInvoiceDraftFromTextOrImage and answerFinancialQuestion parse accur
       chat.highlights.some(h => h.includes(Math.round(report.totalPotentialSavingUZS).toLocaleString('ru-RU'))),
       'Q&A Potential Savings must match deduplicated report.totalPotentialSavingUZS',
     );
+  } finally {
+    env.GEMINI_API_KEY = prevKey;
+    env.COARENA_API_KEY = prevCoarenaKey;
+  }
+});
+
+test('parseDatePeriodFromQuestion parses RU/UZ/EN single dates, ranges, weeks, months, and relative periods', () => {
+  const now = new Date('2026-11-18T09:00:00.000Z'); // Wednesday
+
+  // Single calendar dates -> inclusive single-day range
+  for (const q of [
+    'Расходы за 15 ноября',
+    '15 ноября',
+    '15.11',
+    '15.11.2026',
+    '2026-11-15',
+    '15 noyabr',
+    'Nov 15',
+  ]) {
+    const res = parseDatePeriodFromQuestion(q, now);
+    assert.ok(res, `Expected parsed period for "${q}"`);
+    assert.equal(res.from, '2026-11-15', `from mismatch for "${q}"`);
+    assert.equal(res.to, '2026-11-15', `to mismatch for "${q}"`);
+    assert.equal(res.fromIso, '2026-11-15T00:00:00.000Z');
+    assert.equal(res.toIso, '2026-11-15T23:59:59.999Z');
+    assert.equal(res.days, 1);
+  }
+
+  // Date ranges
+  for (const q of [
+    'с 10 по 15 ноября',
+    '10-15 ноября',
+    '10–15 noyabr',
+    'Nov 10 to Nov 15',
+  ]) {
+    const res = parseDatePeriodFromQuestion(q, now);
+    assert.ok(res, `Expected parsed range for "${q}"`);
+    assert.equal(res.from, '2026-11-10', `from mismatch for "${q}"`);
+    assert.equal(res.to, '2026-11-15', `to mismatch for "${q}"`);
+    assert.equal(res.days, 6);
+  }
+
+  // Relative single days
+  assert.equal(parseDatePeriodFromQuestion('Расходы за сегодня', now)?.from, '2026-11-18');
+  assert.equal(parseDatePeriodFromQuestion('Расходы за вчера', now)?.from, '2026-11-17');
+  assert.equal(parseDatePeriodFromQuestion('Позавчера расходы', now)?.from, '2026-11-16');
+
+  // Previous calendar week (Mon-Sun: 2026-11-09 .. 2026-11-15)
+  for (const q of [
+    'Налоги и электричество за прошлую неделю',
+    'прошлая неделя',
+    "o'tgan hafta",
+    'last week',
+  ]) {
+    const res = parseDatePeriodFromQuestion(q, now);
+    assert.ok(res, `Expected previous week for "${q}"`);
+    assert.equal(res.from, '2026-11-09');
+    assert.equal(res.to, '2026-11-15');
+    assert.equal(res.days, 7);
+    assert.equal(res.kind, 'week');
+  }
+
+  // Current week (Mon 2026-11-16 .. Wed 2026-11-18)
+  const thisWeek = parseDatePeriodFromQuestion('за эту неделю', now);
+  assert.equal(thisWeek?.from, '2026-11-16');
+  assert.equal(thisWeek?.to, '2026-11-18');
+
+  // Last N days
+  const last5 = parseDatePeriodFromQuestion('за последние 5 дней', now);
+  assert.equal(last5?.from, '2026-11-14');
+  assert.equal(last5?.to, '2026-11-18');
+  assert.equal(last5?.days, 5);
+
+  // Relative & named months
+  const prevMonth = parseDatePeriodFromQuestion('за прошлый месяц', now);
+  assert.equal(prevMonth?.from, '2026-10-01');
+  assert.equal(prevMonth?.to, '2026-10-31');
+
+  const oct = parseDatePeriodFromQuestion('Расходы в октябре', now);
+  assert.equal(oct?.from, '2026-10-01');
+  assert.equal(oct?.to, '2026-10-31');
+
+  const nov = parseDatePeriodFromQuestion('Расходы в ноябре', now);
+  assert.equal(nov?.from, '2026-11-01');
+  assert.equal(nov?.to, '2026-11-18');
+
+  // Year rollover in January
+  const janNow = new Date('2027-01-10T09:00:00.000Z');
+  assert.equal(parseDatePeriodFromQuestion('Расходы за 15 ноября', janNow)?.from, '2026-11-15');
+
+  // Guard against false English "may" modal match
+  assert.equal(parseDatePeriodFromQuestion('What may happen with costs?', now), null);
+});
+
+test('priority tax/electricity classification, analytics summary, and AI period response blocks work end-to-end', async () => {
+  assert.equal(getExpensePriorityTier('TAXES'), 'PRIORITY');
+  assert.equal(getExpensePriorityTier('UTILITIES'), 'PRIORITY');
+  assert.equal(getExpensePriorityTier('COMMUNICATION'), 'PRIORITY');
+  assert.equal(getExpensePriorityTier('INGREDIENTS'), 'BASE');
+  assert.equal(getExpensePriorityTier('SALARY'), 'BASE');
+  assert.equal(getExpensePriorityTier('RENT'), 'BASE');
+  assert.equal(getExpensePriorityTier('PACKAGING'), 'ADDITIONAL');
+  assert.equal(getExpensePriorityTier('DELIVERY'), 'ADDITIONAL');
+  assert.equal(getExpensePriorityTier('EQUIPMENT'), 'ADDITIONAL');
+  assert.equal(getExpensePriorityTier('MARKETING'), 'ADDITIONAL');
+  assert.equal(getExpensePriorityTier('OTHER'), 'ADDITIONAL');
+
+  assert.equal(classifyExpenseText('Налог с оборота ЕНП 4% ГНК').category, 'TAXES');
+  assert.equal(classifyExpenseText('РЭС электроэнергия дневной тариф 1200 кВт·ч').category, 'UTILITIES');
+
+  const expensesOnNov15: AnalysisExpenseInput[] = [
+    {
+      id: 'exp-tax-1',
+      supplierId: 'sup-gnk',
+      supplierName: 'ГНК г. Ташкента',
+      category: 'TAXES',
+      itemName: 'НДС 12% и налог с оборота',
+      description: 'Начисление налогов за период',
+      amount: 3_200_000,
+      quantity: null,
+      unit: null,
+      unitPrice: null,
+      invoiceNumber: 'TAX-15',
+      spentAt: new Date('2026-11-15T11:00:00.000Z'),
+    },
+    {
+      id: 'exp-elec-1',
+      supplierId: 'sup-res',
+      supplierName: 'РЭС Ташкент',
+      category: 'UTILITIES',
+      itemName: 'Электроэнергия кухня (дневной тариф)',
+      description: 'Счётчик кВт·ч РЭС',
+      amount: 1_080_000,
+      quantity: 1200,
+      unit: 'кВт·ч',
+      unitPrice: 900,
+      invoiceNumber: 'EL-15',
+      spentAt: new Date('2026-11-15T12:00:00.000Z'),
+    },
+    {
+      id: 'exp-ing-1',
+      supplierId: 'sup-meat',
+      supplierName: 'Chorvoq Meat',
+      category: 'INGREDIENTS',
+      itemName: 'Говядина',
+      description: 'Говядина 40 кг',
+      amount: 3_600_000,
+      quantity: 40,
+      unit: 'кг',
+      unitPrice: 90_000,
+      invoiceNumber: 'M-15',
+      spentAt: new Date('2026-11-15T13:00:00.000Z'),
+    },
+    {
+      id: 'exp-pkg-1',
+      supplierId: 'sup-pkg',
+      supplierName: 'Pack UZ',
+      category: 'PACKAGING',
+      itemName: 'Крафт-коробки',
+      description: 'Упаковка для доставки',
+      amount: 450_000,
+      quantity: 500,
+      unit: 'шт',
+      unitPrice: 900,
+      invoiceNumber: 'P-15',
+      spentAt: new Date('2026-11-15T14:00:00.000Z'),
+    },
+  ];
+
+  const overview = makeBaseOverview({
+    period: { from: '2026-11-15T00:00:00.000Z', to: '2026-11-15T23:59:59.999Z', days: 1 },
+    revenue: 16_000_000,
+    totalExpenses: 8_330_000,
+    categoryBreakdown: [
+      { category: 'INGREDIENTS', amount: 3_600_000, sharePct: 43.2, prevAmount: 3_000_000, growthPct: 20, budgetLimit: 10_000_000 },
+      { category: 'TAXES', amount: 3_200_000, sharePct: 38.4, prevAmount: 2_500_000, growthPct: 28, budgetLimit: 4_000_000 },
+      { category: 'UTILITIES', amount: 1_080_000, sharePct: 13.0, prevAmount: 700_000, growthPct: 54.3, budgetLimit: 1_500_000 },
+      { category: 'PACKAGING', amount: 450_000, sharePct: 5.4, prevAmount: 400_000, growthPct: 12.5, budgetLimit: 800_000 },
+    ],
+  });
+
+  const prioSummary = computePriorityExpenseSummary({ overview, expenses: expensesOnNov15 });
+  assert.equal(prioSummary.taxesTotal, 3_200_000);
+  assert.equal(prioSummary.taxesPctOfRevenue, 20.0);
+  assert.equal(prioSummary.utilitiesTotal, 1_080_000);
+  assert.equal(prioSummary.electricityTotal, 1_080_000);
+  assert.equal(prioSummary.electricityKwh, 1200);
+  assert.equal(prioSummary.electricityAvgTariffPerKwh, 900);
+  assert.equal(prioSummary.priorityTotal, 4_280_000);
+  assert.equal(prioSummary.baseTotal, 3_600_000);
+  assert.equal(prioSummary.additionalTotal, 450_000);
+
+  const findings = analyzeFinancialData({
+    now: new Date('2026-11-18T09:00:00.000Z'),
+    restaurantCreatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    periodStart: new Date('2026-11-15T00:00:00.000Z'),
+    periodEnd: new Date('2026-11-15T23:59:59.999Z'),
+    expensesPeriod: expensesOnNov15,
+    expensesAll90d: expensesOnNov15,
+    expensesPrevPeriod: [],
+    overview,
+    ordersPeriod: [],
+    dishes: [],
+    budgets: [],
+  });
+  const codes = new Set(findings.map(f => f.code));
+  assert.ok(codes.has('HIGH_TAX_BURDEN'));
+  assert.ok(codes.has('HIGH_ELECTRICITY_COST'));
+
+  const report = buildHeuristicOptimizationReport(overview, findings);
+  assert.ok(report.executiveSummary.ru.includes('налоги'));
+  assert.ok(report.executiveSummary.uz.includes('soliqlar'));
+  assert.ok(report.executiveSummary.en.includes('Taxes'));
+
+  // Intent + Blocks + Deterministic Answer for "Расходы за 15 ноября"
+  const now = new Date('2026-11-18T09:00:00.000Z');
+  const intents = detectQuestionIntents('Расходы за 15 ноября', now);
+  assert.equal(intents.isExpenseQuery, true);
+  assert.equal(intents.parsedPeriod?.from, '2026-11-15');
+  assert.equal(intents.parsedPeriod?.to, '2026-11-15');
+
+  const { blocks } = buildPriorityExpenseBlocks({
+    lang: 'ru',
+    periodLabel: intents.parsedPeriod!.label.ru,
+    fromStr: '2026-11-15',
+    toStr: '2026-11-15',
+    overview,
+    expenses: expensesOnNov15,
+    requestedCategories: intents.requestedCategories,
+  });
+  assert.equal(blocks.length, 3);
+  assert.equal(blocks[0]!.id, 'blk-priority-kpis');
+  assert.equal(blocks[1]!.id, 'blk-priority-chart');
+  assert.equal(blocks[2]!.id, 'blk-expenses-table');
+  if (blocks[2]!.kind === 'table') {
+    assert.equal(blocks[2]!.rows.length, 4);
+    assert.equal(blocks[2]!.rows[0]![0], '2026-11-15');
+    assert.ok(blocks[2]!.rows.some(r => String(r[2]).includes('1200 кВт·ч')));
+    assert.deepEqual(blocks[2]!.highlightRowIndices, [0, 1]);
+  }
+
+  const answer = buildDeterministicAgentAnswer({
+    lang: 'ru',
+    restaurantName: 'Osh & Olov',
+    analysis: { overview, findings, report },
+    prioritySummary: prioSummary,
+    fromStr: '2026-11-15',
+    toStr: '2026-11-15',
+    parsedPeriod: intents.parsedPeriod,
+    expenses: expensesOnNov15,
+    isExpenseQuery: true,
+    geoData: null,
+    varianceData: null,
+    branchData: null,
+    scenarioData: null,
+  });
+  assert.ok(answer.ru.includes('2026-11-15'));
+  assert.match(answer.ru, /1[\s\u00A0]200 кВт·ч/);
+  assert.ok(answer.uz.includes('2026-11-15'));
+  assert.ok(answer.en.includes('2026-11-15'));
+
+  // AgentClientAction set_filters accepts optional from/to
+  const filterAction: AgentClientAction = {
+    type: 'set_filters',
+    from: '2026-11-15',
+    to: '2026-11-15',
+    label: 'Период: 15 ноября 2026',
+  };
+  assert.equal(filterAction.from, '2026-11-15');
+
+  // answerFinancialQuestion with resolvedPeriod and itemized expenses
+  const prevKey = env.GEMINI_API_KEY;
+  const prevCoarenaKey = env.COARENA_API_KEY;
+  env.GEMINI_API_KEY = undefined;
+  env.COARENA_API_KEY = undefined;
+  try {
+    const qa = await answerFinancialQuestion({
+      question: 'Налоги и электричество за прошлую неделю',
+      restaurantName: 'Osh & Olov',
+      overview,
+      findings,
+      expenses: expensesOnNov15,
+      resolvedPeriod: parseDatePeriodFromQuestion('Налоги и электричество за прошлую неделю', now),
+    });
+    assert.equal(qa.source, 'heuristic');
+    assert.ok(qa.answer.ru.includes('2026-11-09 – 2026-11-15'));
+    assert.match(qa.answer.ru, /1[\s\u00A0]200 кВт·ч/);
+    assert.ok(qa.highlights.some(h => h.includes('Potential Savings')));
   } finally {
     env.GEMINI_API_KEY = prevKey;
     env.COARENA_API_KEY = prevCoarenaKey;

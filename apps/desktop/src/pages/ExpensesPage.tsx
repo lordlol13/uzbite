@@ -12,9 +12,22 @@ import {
   deleteExpense,
   extractOcrDraft,
   importExpensesCsv,
+  updateExpense,
 } from '../lib/api';
 import { downloadCsv, parseExpensesCsv, type ParsedCsvExpenseRow } from '../lib/csv';
-import { CATEGORY_COLORS, CATEGORY_LABELS, COPY, fmtMoney } from '../lib/i18n';
+import {
+  ADDITIONAL_EXPENSE_CATEGORIES,
+  BASE_EXPENSE_CATEGORIES,
+  CATEGORY_COLORS,
+  CATEGORY_LABELS,
+  COPY,
+  EXPENSE_GROUP_META,
+  PRIORITY_EXPENSE_CATEGORIES,
+  fmtCompactMoney,
+  fmtMoney,
+  getExpenseGroup,
+  type ExpenseGroupId,
+} from '../lib/i18n';
 
 const DEMO_CSV_SAMPLE = `supplierName,category,itemName,description,quantity,unit,unitPrice,amount,invoiceNumber,spentAt
 Chorvoq Go'sht База,INGREDIENTS,Говядина мякоть,Повторная накладная на говядину из CSV-выгрузки,50,кг,82000,4100000,INV-2026-1104,${new Date().toISOString().slice(0, 10)}
@@ -26,18 +39,47 @@ Toshkent Elektr & Kommunal,MARKETING,Счёт за газ и воду,Газ и 
 export function ExpensesPage({
   lang,
   expenses,
+  loading = false,
+  from,
+  to,
+  showAllDates = false,
+  onToggleAllDates,
+  onDateRangeChange,
+  groupFilter: controlledGroup,
+  onGroupFilterChange,
   onMutated,
 }: {
   lang: Language;
   expenses: ExpenseDto[];
+  loading?: boolean;
+  from: string;
+  to: string;
+  showAllDates?: boolean;
+  onToggleAllDates?: (showAll: boolean) => void;
+  onDateRangeChange?: (from: string, to: string) => void;
+  groupFilter?: ExpenseGroupId;
+  onGroupFilterChange?: (group: ExpenseGroupId) => void;
   onMutated: () => Promise<void>;
 }) {
   const t = COPY[lang];
   const [search, setSearch] = useState('');
+  const [internalGroup, setInternalGroup] = useState<ExpenseGroupId>('ALL');
+  const groupFilter = controlledGroup ?? internalGroup;
   const [catFilter, setCatFilter] = useState<ExpenseCategory | ''>('');
   const [panel, setPanel] = useState<'none' | 'add' | 'csv' | 'ocr'>('none');
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  function setGroupFilter(next: ExpenseGroupId) {
+    if (onGroupFilterChange) {
+      onGroupFilterChange(next);
+    } else {
+      setInternalGroup(next);
+    }
+    if (catFilter && next !== 'ALL' && !EXPENSE_GROUP_META[next].categories.includes(catFilter)) {
+      setCatFilter('');
+    }
+  }
 
   // Add form state
   const [supplierName, setSupplierName] = useState('');
@@ -63,6 +105,7 @@ export function ExpensesPage({
   );
 
   const filtered = expenses.filter(e => {
+    if (groupFilter !== 'ALL' && getExpenseGroup(e.category) !== groupFilter) return false;
     if (catFilter && e.category !== catFilter) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -73,6 +116,31 @@ export function ExpensesPage({
       (e.invoiceNumber ?? '').toLowerCase().includes(q)
     );
   });
+
+  const totalAmount = Math.max(
+    1,
+    expenses.reduce((s, e) => s + e.amount, 0),
+  );
+  const taxesRows = expenses.filter(e => e.category === 'TAXES');
+  const taxesSum = taxesRows.reduce((s, e) => s + e.amount, 0);
+
+  const elecRows = expenses.filter(
+    e => e.category === 'UTILITIES' || e.category === 'COMMUNICATION',
+  );
+  const elecSum = elecRows.reduce((s, e) => s + e.amount, 0);
+  const totalKwh = elecRows
+    .filter(e => e.unit && /квт|kwh/i.test(e.unit) && e.quantity != null)
+    .reduce((s, e) => s + (e.quantity ?? 0), 0);
+
+  const baseRows = expenses.filter(e => BASE_EXPENSE_CATEGORIES.includes(e.category));
+  const baseSum = baseRows.reduce((s, e) => s + e.amount, 0);
+
+  const additionalRows = expenses.filter(e => ADDITIONAL_EXPENSE_CATEGORIES.includes(e.category));
+  const additionalSum = additionalRows.reduce((s, e) => s + e.amount, 0);
+
+  const filteredSum = filtered.reduce((s, e) => s + e.amount, 0);
+  const availableCategoriesForSelect =
+    groupFilter === 'ALL' ? EXPENSE_CATEGORIES : EXPENSE_GROUP_META[groupFilter].categories;
 
   async function handleClassify() {
     const text = `${itemName} ${description}`.trim();
@@ -179,6 +247,16 @@ export function ExpensesPage({
     }
   }
 
+  async function handleToggleVerify(exp: ExpenseDto) {
+    setBusy(true);
+    try {
+      await updateExpense(exp.id, { isVerified: !exp.isVerified });
+      await onMutated();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleExportCsv() {
     downloadCsv(
       `uzbite-expenses-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -201,6 +279,143 @@ export function ExpensesPage({
 
   return (
     <div className="grid gap-5">
+      {/* Priority Expense Spotlight Strip: Taxes, Electricity/Utilities, Base, Additional */}
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+        <button
+          type="button"
+          onClick={() => {
+            setGroupFilter('PRIORITY');
+            setCatFilter('TAXES');
+          }}
+          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+            catFilter === 'TAXES' ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/30' : ''
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                {t.priorityBadge}
+              </span>
+              <span className="truncate text-xs font-medium text-[var(--muted)]">{t.taxes}</span>
+            </div>
+            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+              {fmtCompactMoney(taxesSum, lang)}
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+              {taxesRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+              {((taxesSum / totalAmount) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bad-soft)] text-[11px] font-bold text-[var(--bad)] tabular-nums">
+            {((taxesSum / totalAmount) * 100).toFixed(0)}%
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setGroupFilter('PRIORITY');
+            setCatFilter('UTILITIES');
+          }}
+          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+            catFilter === 'UTILITIES' ? 'border-[var(--accent-3)] ring-1 ring-[var(--accent-3)]/30' : ''
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+              >
+                {t.priorityBadge}
+              </span>
+              <span className="truncate text-xs font-medium text-[var(--muted)]">
+                {t.electricityUtilities}
+              </span>
+            </div>
+            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+              {fmtCompactMoney(elecSum, lang)}
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+              {totalKwh > 0
+                ? `${new Intl.NumberFormat(lang === 'en' ? 'en-US' : 'ru-RU').format(Math.round(totalKwh))} ${lang === 'en' ? 'kWh' : 'кВт·ч'}`
+                : `${elecRows.length} ${lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'}`}{' '}
+              · {((elecSum / totalAmount) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+            style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+          >
+            {((elecSum / totalAmount) * 100).toFixed(0)}%
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setGroupFilter('BASE');
+            setCatFilter('');
+          }}
+          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+            groupFilter === 'BASE' && !catFilter ? 'border-[var(--mint)] ring-1 ring-[var(--mint)]/30' : ''
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-[var(--muted)]">
+              {EXPENSE_GROUP_META.BASE.shortLabel[lang]} ·{' '}
+              {lang === 'ru' ? 'Сырьё, ФОТ, Аренда' : lang === 'uz' ? 'Masalliq, Haq, Ijara' : 'Ingredients, Payroll, Rent'}
+            </div>
+            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+              {fmtCompactMoney(baseSum, lang)}
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+              {baseRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+              {((baseSum / totalAmount) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+            style={{ background: 'var(--mint-soft)', color: 'var(--mint)' }}
+          >
+            {((baseSum / totalAmount) * 100).toFixed(0)}%
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setGroupFilter('ADDITIONAL');
+            setCatFilter('');
+          }}
+          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+            groupFilter === 'ADDITIONAL' && !catFilter
+              ? 'border-[var(--accent-2)] ring-1 ring-[var(--accent-2)]/30'
+              : ''
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-[var(--muted)]">
+              {EXPENSE_GROUP_META.ADDITIONAL.shortLabel[lang]} ·{' '}
+              {lang === 'ru' ? 'Упаковка, Доставка, Маркетинг' : lang === 'uz' ? 'Qadoq, Yetkazish, Marketing' : 'Pack, Delivery, Marketing'}
+            </div>
+            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+              {fmtCompactMoney(additionalSum, lang)}
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+              {additionalRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+              {((additionalSum / totalAmount) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+            style={{ background: 'rgba(129, 114, 255, 0.14)', color: 'var(--accent-2)' }}
+          >
+            {((additionalSum / totalAmount) * 100).toFixed(0)}%
+          </span>
+        </button>
+      </div>
+
       {/* Toolbar */}
       <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -218,18 +433,47 @@ export function ExpensesPage({
           </button>
         </div>
 
-        {statusMsg && (
-          <span className="rounded-lg bg-[var(--accent-soft)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
-            {statusMsg}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {onToggleAllDates && (
+            <div className="flex items-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => onToggleAllDates(false)}
+                className={`rounded-full px-3 py-1 tabular-nums transition ${
+                  !showAllDates
+                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                    : 'text-[var(--muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                {t.activePeriod}: {from === to ? from : `${from} — ${to}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleAllDates(true)}
+                className={`rounded-full px-3 py-1 transition ${
+                  showAllDates
+                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                    : 'text-[var(--muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                {t.allDates}
+              </button>
+            </div>
+          )}
+
+          {statusMsg && (
+            <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
+              {statusMsg}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Add Expense Drawer */}
       {panel === 'add' && (
         <form onSubmit={handleAddSubmit} className="card grid gap-4 p-5">
           <div className="flex items-center justify-between">
-            <h2 className="m-0 text-sm font-extrabold">{t.addExpense}</h2>
+            <h2 className="m-0 text-sm font-semibold">{t.addExpense}</h2>
             <button type="button" onClick={handleClassify} className="btn-secondary text-xs">
               {t.autoClassify}
             </button>
@@ -306,7 +550,7 @@ export function ExpensesPage({
       {panel === 'csv' && (
         <div className="card grid gap-4 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="m-0 text-sm font-extrabold">{t.importCsv}</h2>
+            <h2 className="m-0 text-sm font-semibold">{t.importCsv}</h2>
             <button
               type="button"
               disabled={busy}
@@ -360,7 +604,7 @@ export function ExpensesPage({
       {panel === 'ocr' && (
         <div className="card grid gap-3 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="m-0 text-sm font-extrabold">{t.ocrExtract}</h2>
+            <h2 className="m-0 text-sm font-semibold">{t.ocrExtract}</h2>
             <div className="flex gap-2 text-xs">
               <button
                 type="button"
@@ -399,9 +643,42 @@ export function ExpensesPage({
         </div>
       )}
 
-      {/* Search & Filter + Ledger Table */}
+      {/* Search & Group Filter + Ledger Table */}
       <div className="card p-5">
-        <div className="mb-4 flex flex-wrap gap-3">
+        {/* Category Group Pills */}
+        <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="no-scrollbar flex flex-wrap items-center gap-1.5">
+            {(['ALL', 'PRIORITY', 'BASE', 'ADDITIONAL'] as const).map(g => {
+              const active = groupFilter === g && !catFilter;
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => {
+                    setGroupFilter(g);
+                    setCatFilter('');
+                  }}
+                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
+                    active
+                      ? 'border-transparent bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
+                      : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {EXPENSE_GROUP_META[g].label[lang]}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-xs tabular-nums">
+            <span className="text-[var(--muted)]">
+              {t.filteredTotal} ({filtered.length}):
+            </span>
+            <strong className="font-semibold text-[var(--text)]">{fmtMoney(filteredSum, lang)}</strong>
+          </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <input
             type="search"
             className="input-field max-w-sm"
@@ -414,13 +691,51 @@ export function ExpensesPage({
             value={catFilter}
             onChange={e => setCatFilter(e.target.value as ExpenseCategory | '')}
           >
-            <option value="">{t.all}</option>
-            {EXPENSE_CATEGORIES.map(c => (
+            <option value="">{EXPENSE_GROUP_META[groupFilter].label[lang]}</option>
+            {availableCategoriesForSelect.map(c => (
               <option key={c} value={c}>{CATEGORY_LABELS[c][lang]}</option>
             ))}
           </select>
+
+          {onDateRangeChange && (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs">
+              <span className="text-[11px] font-medium text-[var(--muted)]">{t.dateFrom}</span>
+              <input
+                type="date"
+                aria-label={t.dateFrom}
+                className="bg-transparent text-xs font-medium text-[var(--text)] outline-none tabular-nums"
+                value={from}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val) {
+                    onToggleAllDates?.(false);
+                    onDateRangeChange(val, val > to ? val : to);
+                  }
+                }}
+              />
+              <span className="text-[11px] font-medium text-[var(--muted)]">{t.dateTo}</span>
+              <input
+                type="date"
+                aria-label={t.dateTo}
+                className="bg-transparent text-xs font-medium text-[var(--text)] outline-none tabular-nums"
+                value={to}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val) {
+                    onToggleAllDates?.(false);
+                    onDateRangeChange(val < from ? val : from, val);
+                  }
+                }}
+              />
+            </div>
+          )}
         </div>
 
+        {loading ? (
+          <p className="py-8 text-center text-xs text-[var(--muted)]">
+            {lang === 'ru' ? 'Загрузка расходов...' : lang === 'uz' ? 'Xarajatlar yuklanmoqda...' : 'Loading expenses...'}
+          </p>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="border-b border-[var(--border)] text-[var(--muted)]">
@@ -430,36 +745,82 @@ export function ExpensesPage({
                 <th className="py-2.5 pr-3">{t.item}</th>
                 <th className="py-2.5 pr-3">{t.supplier}</th>
                 <th className="py-2.5 pr-3">{t.invoice}</th>
-                <th className="py-2.5 pr-3 text-right">{t.qty} × {t.unitPrice}</th>
+                <th className="py-2.5 pr-3 text-right">{t.qty} · {t.unit}</th>
                 <th className="py-2.5 pr-3 text-right">{t.amount}</th>
+                <th className="py-2.5 pr-3">{t.status}</th>
                 <th className="py-2.5 pr-3">{t.source}</th>
                 <th className="py-2.5 text-right" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(exp => (
-                <tr key={exp.id} className="border-b border-[var(--border)] last:border-0">
+              {filtered.map(exp => {
+                const isPriority = PRIORITY_EXPENSE_CATEGORIES.includes(exp.category);
+                const qtyText =
+                  exp.quantity != null && exp.unitPrice != null
+                    ? `${exp.quantity} ${exp.unit ?? ''} × ${fmtMoney(exp.unitPrice, lang)}`
+                    : exp.quantity != null
+                      ? `${exp.quantity} ${exp.unit ?? ''}`.trim()
+                      : exp.unit
+                        ? exp.unit
+                        : '—';
+                return (
+                <tr
+                  key={exp.id}
+                  className={`border-b border-[var(--border)] last:border-0 ${
+                    isPriority ? 'bg-[var(--accent-soft)]/25' : ''
+                  }`}
+                >
                   <td className="py-2.5 pr-3 whitespace-nowrap tabular-nums">{exp.spentAt.slice(0, 10)}</td>
                   <td className="py-2.5 pr-3 whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-0.5 text-[11px] font-semibold">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: CATEGORY_COLORS[exp.category] }}
-                      />
-                      {CATEGORY_LABELS[exp.category][lang]}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[11px] font-semibold">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: CATEGORY_COLORS[exp.category] }}
+                        />
+                        {CATEGORY_LABELS[exp.category][lang]}
+                      </span>
+                      {isPriority && (
+                        <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
+                          {t.priorityBadge}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 pr-3">
                     <div className="font-bold">{exp.itemName}</div>
                     <div className="max-w-xs truncate text-[11px] text-[var(--muted)]">{exp.description}</div>
                   </td>
                   <td className="py-2.5 pr-3 text-[var(--muted)]">{exp.supplierName ?? '—'}</td>
-                  <td className="py-2.5 pr-3 tabular-nums">{exp.invoiceNumber ?? '—'}</td>
-                  <td className="py-2.5 pr-3 text-right whitespace-nowrap tabular-nums text-[var(--muted)]">
-                    {exp.quantity && exp.unitPrice ? `${exp.quantity} ${exp.unit ?? ''} × ${fmtMoney(exp.unitPrice, lang)}` : '—'}
+                  <td className="py-2.5 pr-3 tabular-nums">
+                    {exp.invoiceNumber ? (
+                      <code className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--text)]">
+                        {exp.invoiceNumber}
+                      </code>
+                    ) : (
+                      '—'
+                    )}
                   </td>
-                  <td className="py-2.5 pr-3 text-right font-extrabold whitespace-nowrap tabular-nums">
+                  <td className="py-2.5 pr-3 text-right whitespace-nowrap tabular-nums text-[var(--muted)]">
+                    {qtyText}
+                  </td>
+                  <td className="py-2.5 pr-3 text-right font-semibold whitespace-nowrap tabular-nums">
                     {fmtMoney(exp.amount, lang)}
+                  </td>
+                  <td className="py-2.5 pr-3 whitespace-nowrap">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleToggleVerify(exp)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                        exp.isVerified
+                          ? 'bg-[var(--good-soft)] text-[var(--good)] hover:brightness-95'
+                          : 'bg-[var(--warn-soft)] text-[var(--warn)] hover:brightness-95'
+                      }`}
+                    >
+                      <span>{exp.isVerified ? '✓' : '•'}</span>
+                      <span>{exp.isVerified ? t.verified : t.unverified}</span>
+                    </button>
                   </td>
                   <td className="py-2.5 pr-3">
                     <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted)]">
@@ -477,13 +838,15 @@ export function ExpensesPage({
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {filtered.length === 0 && (
             <p className="py-8 text-center text-xs text-[var(--muted)]">{t.noData}</p>
           )}
         </div>
+        )}
       </div>
     </div>
   );

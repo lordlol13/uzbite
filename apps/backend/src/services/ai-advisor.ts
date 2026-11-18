@@ -15,7 +15,10 @@ import {
   calculateDeduplicatedSavings,
   categoryLabel,
   classifyExpenseText,
+  computePriorityExpenseSummary,
+  type AnalysisExpenseInput,
 } from './finance-analysis.js';
+import { formatDateRangeLabel, type ParsedDatePeriod } from './date-period-parser.js';
 
 const geminiReportSchema = z.object({
   executiveSummary: z.object({
@@ -83,6 +86,8 @@ export async function generateAiOptimizationReport(
   const baseline = buildHeuristicOptimizationReport(overview, findings);
   if ((!env.COARENA_API_KEY && !env.GEMINI_API_KEY) || findings.length === 0) return baseline;
 
+  const priorityExpenseSummary = computePriorityExpenseSummary({ overview });
+
   const anonymizedPayload = {
     period: overview.period,
     revenueUZS: Math.round(overview.revenue),
@@ -95,6 +100,7 @@ export async function generateAiOptimizationReport(
     primeCostPct: overview.primeCostPct,
     cogsVarianceUZS: overview.cogsVarianceUZS,
     breakEvenRevenueUZS: overview.breakEvenRevenue,
+    priorityExpenseSummary,
     deduplicatedPotentialSavingUZS: baseline.totalPotentialSavingUZS,
     findings: findings.slice(0, 12).map(f => ({
       kind: f.kind,
@@ -109,7 +115,8 @@ export async function generateAiOptimizationReport(
 
   const prompt = [
     'You are a senior restaurant CFO & financial audit AI advisor.',
-    'Analyze the anonymized KPIs and deterministic audit findings below.',
+    'Analyze the anonymized KPIs, priorityExpenseSummary (Taxes, Electricity/Utilities, Base vs Additional), and deterministic audit findings below.',
+    'Prioritize Taxes (TAXES), Electricity/Utilities (UTILITIES, COMMUNICATION), and Base (INGREDIENTS, SALARY, RENT) vs Additional costs in executiveSummary and high-priority recommendations.',
     'Do NOT invent new numbers; strictly cite numbers from the input.',
     'Return valid JSON matching: { "executiveSummary": { "ru": string, "uz": string, "en": string }, "recommendations": [{ "priority": "high"|"medium"|"low", "title": { "ru": string, "uz": string, "en": string }, "action": { "ru": string, "uz": string, "en": string }, "expectedSavingUZS": number, "findingCodes": string[] }] }.',
     JSON.stringify(anonymizedPayload),
@@ -279,13 +286,22 @@ export async function answerFinancialQuestion(params: {
   restaurantName: string;
   overview: BusinessKpiOverview;
   findings: Finding[];
+  expenses?: AnalysisExpenseInput[];
+  resolvedPeriod?: ParsedDatePeriod | null;
 }): Promise<AiChatResponse> {
-  const { question, restaurantName, overview, findings } = params;
+  const { question, restaurantName, overview, findings, expenses, resolvedPeriod } = params;
+  const prioritySummary = computePriorityExpenseSummary({ overview, expenses });
+  const periodFrom = resolvedPeriod?.from ?? overview.period.from.slice(0, 10);
+  const periodTo = resolvedPeriod?.to ?? overview.period.to.slice(0, 10);
+  const periodIsoLabel = periodFrom === periodTo ? periodFrom : `${periodFrom} – ${periodTo}`;
+  const periodRu = resolvedPeriod ? `${resolvedPeriod.label.ru} (${periodIsoLabel})` : `${formatDateRangeLabel(periodFrom, periodTo, 'ru')} (${periodIsoLabel})`;
+  const periodUz = resolvedPeriod ? `${resolvedPeriod.label.uz} (${periodIsoLabel})` : `${formatDateRangeLabel(periodFrom, periodTo, 'uz')} (${periodIsoLabel})`;
+  const periodEn = resolvedPeriod ? `${resolvedPeriod.label.en} (${periodIsoLabel})` : `${formatDateRangeLabel(periodFrom, periodTo, 'en')} (${periodIsoLabel})`;
 
   if (env.COARENA_API_KEY || env.GEMINI_API_KEY) {
     const context = {
       restaurantName,
-      period: overview.period,
+      period: { ...overview.period, fromDate: periodFrom, toDate: periodTo },
       revenueUZS: Math.round(overview.revenue),
       totalExpensesUZS: Math.round(overview.totalExpenses),
       netProfitUZS: Math.round(overview.netProfit),
@@ -297,7 +313,21 @@ export async function answerFinancialQuestion(params: {
       cogsVarianceUZS: overview.cogsVarianceUZS,
       breakEvenRevenueUZS: overview.breakEvenRevenue,
       cancelRatePct: overview.cancelRatePct,
-      topCategories: overview.categoryBreakdown.slice(0, 6),
+      priorityExpenses: prioritySummary,
+      topCategories: overview.categoryBreakdown.slice(0, 8),
+      ...(expenses && expenses.length > 0
+        ? {
+            itemizedExpenses: expenses.slice(0, 15).map(e => ({
+              date: e.spentAt.toISOString().slice(0, 10),
+              category: e.category,
+              itemName: e.itemName,
+              supplier: e.supplierName,
+              quantity: e.quantity,
+              unit: e.unit,
+              amountUZS: Math.round(e.amount),
+            })),
+          }
+        : {}),
       findings: findings.slice(0, 12).map(f => ({
         kind: f.kind,
         code: f.code,
@@ -309,6 +339,7 @@ export async function answerFinancialQuestion(params: {
     };
     const prompt = [
       'You are an AI financial auditor for a restaurant. Answer the question strictly using the provided data.',
+      'Always state the exact resolved period and prioritize Taxes (TAXES), Electricity/Utilities (UTILITIES, COMMUNICATION), and Base vs Additional expenses when relevant.',
       'Return JSON: { "answer": { "ru": string, "uz": string, "en": string }, "highlights": string[], "relatedFindingCodes": string[] }.',
       `Question: ${question}`,
       `Data: ${JSON.stringify(context)}`,
@@ -327,27 +358,38 @@ export async function answerFinancialQuestion(params: {
   const q = question.toLowerCase();
   const topError = findings.find(f => f.kind === 'ERROR');
   const totalSaving = calculateDeduplicatedSavings(findings);
+  const kwhSuffixRu =
+    prioritySummary.electricityKwh > 0
+      ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} кВт·ч)`
+      : '';
+  const kwhSuffixUz =
+    prioritySummary.electricityKwh > 0
+      ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} kVt·soat)`
+      : '';
+  const kwhSuffixEn =
+    prioritySummary.electricityKwh > 0
+      ? ` (${Math.round(prioritySummary.electricityKwh).toLocaleString('ru-RU')} kWh)`
+      : '';
 
-  if (/(электр|коммунал|аренд|связ|elektr|ijara|aloqa|util|rent|telecom|admin)/i.test(q)) {
-    const adminFindings = findings.filter(f =>
-      ['UTILITIES', 'RENT', 'COMMUNICATION'].includes(f.category ?? '') ||
-      f.code === 'ADMIN_UTILITY_SPIKE',
+  if (/(налог|ндс|есп|ндфл|soliq|qqs|tax|vat|электр|коммунал|аренд|связ|квт|kwh|elektr|ijara|aloqa|util|rent|telecom|admin)/i.test(q)) {
+    const prioFindings = findings.filter(f =>
+      ['TAXES', 'UTILITIES', 'RENT', 'COMMUNICATION'].includes(f.category ?? '') ||
+      ['ADMIN_UTILITY_SPIKE', 'HIGH_TAX_BURDEN', 'HIGH_ELECTRICITY_COST'].includes(f.code),
     );
-    const adminSum = overview.categoryBreakdown
-      .filter(c => c.category === 'UTILITIES' || c.category === 'RENT' || c.category === 'COMMUNICATION')
-      .reduce((s, c) => s + c.amount, 0);
-    const impact = adminFindings.reduce((s, f) => s + f.amountImpact, 0);
+    const impact = prioFindings.reduce((s, f) => s + f.amountImpact, 0);
     return {
       answer: {
-        ru: `По «${restaurantName}» административно-коммунальные расходы (аренда, свет/газ, связь) составили ${fmtNum(adminSum)} (${overview.adminUtilityCostPct.toFixed(1)}% от выручки). ${adminFindings.length > 0 ? `Найдено ${adminFindings.length} аномалий на сумму ${fmtNum(impact)}: ${adminFindings.map(f => f.title.ru).join('; ')}.` : 'Критичных всплесков по этим статьям за период не обнаружено.'}`,
-        uz: `«${restaurantName}» bo‘yicha ma’muriy-kommunal xarajatlar (ijara, elektr/gaz, aloqa) ${fmtNum(adminSum)} (tushumning ${overview.adminUtilityCostPct.toFixed(1)}%) ni tashkil etdi. ${adminFindings.length > 0 ? `${adminFindings.length} ta muammo aniqlandi (${fmtNum(impact)}): ${adminFindings.map(f => f.title.uz).join('; ')}.` : 'Ushbu moddalarda keskin o‘sish aniqlanmadi.'}`,
-        en: `For ${restaurantName}, rent, utility, and telecom spend totaled ${fmtNum(adminSum)} (${overview.adminUtilityCostPct.toFixed(1)}% of revenue). ${adminFindings.length > 0 ? `Detected ${adminFindings.length} anomalies totaling ${fmtNum(impact)}: ${adminFindings.map(f => f.title.en).join('; ')}.` : 'No critical spikes detected in these categories.'}`,
+        ru: `Период: ${periodRu}. По «${restaurantName}» приоритетные расходы: налоги ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% от выручки), электричество и коммунальные ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixRu} (${prioritySummary.utilitiesPctOfRevenue}% от выручки). Базовые расходы: ${fmtNum(prioritySummary.baseTotal)}, дополнительные: ${fmtNum(prioritySummary.additionalTotal)}. ${prioFindings.length > 0 ? `Выявлено ${prioFindings.length} приоритетных сигналов на ${fmtNum(impact)}: ${prioFindings.slice(0, 3).map(f => f.title.ru).join('; ')}.` : 'Критичных всплесков по налогам и коммуналке за период не обнаружено.'}`,
+        uz: `Davr: ${periodUz}. «${restaurantName}» bo‘yicha ustuvor xarajatlar: soliqlar ${fmtNum(prioritySummary.taxesTotal)} (tushumning ${prioritySummary.taxesPctOfRevenue}%), elektr va kommunal ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixUz} (tushumning ${prioritySummary.utilitiesPctOfRevenue}%). Asosiy xarajatlar: ${fmtNum(prioritySummary.baseTotal)}, qo‘shimcha: ${fmtNum(prioritySummary.additionalTotal)}. ${prioFindings.length > 0 ? `${prioFindings.length} ta muammo aniqlandi (${fmtNum(impact)}): ${prioFindings.slice(0, 3).map(f => f.title.uz).join('; ')}.` : 'Ushbu moddalarda keskin o‘sish aniqlanmadi.'}`,
+        en: `Period: ${periodEn}. For ${restaurantName}, priority spend: Taxes ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% of revenue), Electricity & Utilities ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixEn} (${prioritySummary.utilitiesPctOfRevenue}% of revenue). Base costs: ${fmtNum(prioritySummary.baseTotal)}, Additional: ${fmtNum(prioritySummary.additionalTotal)}. ${prioFindings.length > 0 ? `Detected ${prioFindings.length} priority alerts totaling ${fmtNum(impact)}: ${prioFindings.slice(0, 3).map(f => f.title.en).join('; ')}.` : 'No critical spikes detected in priority categories.'}`,
       },
       highlights: [
-        `Admin & Utility: ${fmtNum(adminSum)} (${overview.adminUtilityCostPct.toFixed(1)}%)`,
-        ...adminFindings.slice(0, 3).map(f => `${f.code}: ${fmtNum(f.amountImpact)}`),
+        `Period: ${periodIsoLabel}`,
+        `Taxes: ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}%)`,
+        `Electricity & Utilities: ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixEn}`,
+        `Potential Savings: ${fmtNum(totalSaving)}`,
       ],
-      relatedFindingCodes: [...new Set(adminFindings.map(f => f.code))],
+      relatedFindingCodes: [...new Set(prioFindings.map(f => f.code))],
       source: 'heuristic',
     };
   }
@@ -357,12 +399,35 @@ export async function answerFinancialQuestion(params: {
     const errImpact = errors.reduce((s, f) => s + f.amountImpact, 0);
     return {
       answer: {
-        ru: `В учёте «${restaurantName}» обнаружено ${errors.length} ошибок данных на общую сумму ${fmtNum(errImpact)}. ${errors.length > 0 ? `Главные из них: ${errors.slice(0, 3).map(f => `${f.title.ru} (${fmtNum(f.amountImpact)})`).join('; ')}. Используйте кнопки исправления во вкладке AI-Аудит.` : 'Ошибок учёта за выбранный период не найдено.'}`,
-        uz: `«${restaurantName}» hisobotida umumiy ${fmtNum(errImpact)} lik ${errors.length} ta xatolik aniqlandi. ${errors.length > 0 ? `Asosiylari: ${errors.slice(0, 3).map(f => `${f.title.uz} (${fmtNum(f.amountImpact)})`).join('; ')}.` : 'Tanlangan davrda xatoliklar topilmadi.'}`,
-        en: `Found ${errors.length} accounting/data errors in ${restaurantName} totaling ${fmtNum(errImpact)}. ${errors.length > 0 ? `Top issues: ${errors.slice(0, 3).map(f => `${f.title.en} (${fmtNum(f.amountImpact)})`).join('; ')}. Use the 1-click fixes in the AI Audit tab.` : 'No accounting errors detected in this period.'}`,
+        ru: `Период: ${periodRu}. В учёте «${restaurantName}» обнаружено ${errors.length} ошибок данных на общую сумму ${fmtNum(errImpact)}. ${errors.length > 0 ? `Главные из них: ${errors.slice(0, 3).map(f => `${f.title.ru} (${fmtNum(f.amountImpact)})`).join('; ')}. Используйте кнопки исправления во вкладке AI-Аудит.` : 'Ошибок учёта за выбранный период не найдено.'}`,
+        uz: `Davr: ${periodUz}. «${restaurantName}» hisobotida umumiy ${fmtNum(errImpact)} lik ${errors.length} ta xatolik aniqlandi. ${errors.length > 0 ? `Asosiylari: ${errors.slice(0, 3).map(f => `${f.title.uz} (${fmtNum(f.amountImpact)})`).join('; ')}.` : 'Tanlangan davrda xatoliklar topilmadi.'}`,
+        en: `Period: ${periodEn}. Found ${errors.length} accounting/data errors in ${restaurantName} totaling ${fmtNum(errImpact)}. ${errors.length > 0 ? `Top issues: ${errors.slice(0, 3).map(f => `${f.title.en} (${fmtNum(f.amountImpact)})`).join('; ')}. Use the 1-click fixes in the AI Audit tab.` : 'No accounting errors detected in this period.'}`,
       },
-      highlights: errors.slice(0, 4).map(f => `${f.code}: ${fmtNum(f.amountImpact)}`),
+      highlights: [
+        ...errors.slice(0, 3).map(f => `${f.code}: ${fmtNum(f.amountImpact)}`),
+        `Potential Savings: ${fmtNum(totalSaving)}`,
+      ],
       relatedFindingCodes: [...new Set(errors.map(f => f.code))],
+      source: 'heuristic',
+    };
+  }
+
+  if (resolvedPeriod || /(расход|затрат|базов|дополн|xarajat|asosiy|qo'shimcha|expense|spend|base|additional)/i.test(q)) {
+    const topItems = (expenses ?? []).slice(0, 3).map(e => `${e.itemName} (${fmtNum(e.amount)})`).join(', ');
+    return {
+      answer: {
+        ru: `Период: ${periodRu}. Расходы «${restaurantName}» составили ${fmtNum(prioritySummary.totalExpenses)} (выручка ${fmtNum(overview.revenue)}). Приоритетные: налоги ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% выручки), электричество и коммунальные ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixRu}. Базовые (сырьё, ФОТ, аренда): ${fmtNum(prioritySummary.baseTotal)}; дополнительные: ${fmtNum(prioritySummary.additionalTotal)}.${topItems ? ` Крупные позиции: ${topItems}.` : ''}`,
+        uz: `Davr: ${periodUz}. «${restaurantName}» xarajatlari ${fmtNum(prioritySummary.totalExpenses)} ni tashkil etdi (tushum ${fmtNum(overview.revenue)}). Ustuvor: soliqlar ${fmtNum(prioritySummary.taxesTotal)} (tushumning ${prioritySummary.taxesPctOfRevenue}%), elektr va kommunal ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixUz}. Asosiy: ${fmtNum(prioritySummary.baseTotal)}; qo‘shimcha: ${fmtNum(prioritySummary.additionalTotal)}.${topItems ? ` Yirik pozitsiyalar: ${topItems}.` : ''}`,
+        en: `Period: ${periodEn}. ${restaurantName} expenses totaled ${fmtNum(prioritySummary.totalExpenses)} (revenue ${fmtNum(overview.revenue)}). Priority: Taxes ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}% of revenue), Electricity & Utilities ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixEn}. Base costs: ${fmtNum(prioritySummary.baseTotal)}; Additional: ${fmtNum(prioritySummary.additionalTotal)}.${topItems ? ` Top items: ${topItems}.` : ''}`,
+      },
+      highlights: [
+        `Period: ${periodIsoLabel}`,
+        `Taxes: ${fmtNum(prioritySummary.taxesTotal)} (${prioritySummary.taxesPctOfRevenue}%)`,
+        `Utilities & Electricity: ${fmtNum(prioritySummary.utilitiesTotal)}${kwhSuffixEn}`,
+        `Base: ${fmtNum(prioritySummary.baseTotal)} | Additional: ${fmtNum(prioritySummary.additionalTotal)}`,
+        `Potential Savings: ${fmtNum(totalSaving)}`,
+      ],
+      relatedFindingCodes: findings.slice(0, 4).map(f => f.code),
       source: 'heuristic',
     };
   }
@@ -374,13 +439,14 @@ export async function answerFinancialQuestion(params: {
     const supplyImpact = supplyFindings.reduce((s, f) => s + f.amountImpact, 0);
     return {
       answer: {
-        ru: `Food Cost составляет ${overview.foodCostPct.toFixed(1)}% (целевая норма 28–35%). ${supplyFindings.length > 0 ? `По закупкам и поставщикам выявлено ${supplyFindings.length} точек оптимизации на ${fmtNum(supplyImpact)}: ${supplyFindings.map(f => f.title.ru).join('; ')}.` : 'Скачков закупочных цен и переплат поставщикам не выявлено.'}`,
-        uz: `Food Cost ko‘rsatkichi ${overview.foodCostPct.toFixed(1)}% (maqsad 28–35%). ${supplyFindings.length > 0 ? `Xaridlar va yetkazib beruvchilar bo‘yicha ${fmtNum(supplyImpact)} tejash imkoniyati bor: ${supplyFindings.map(f => f.title.uz).join('; ')}.` : 'Narx keskin oshishi aniqlanmadi.'}`,
-        en: `Current Food Cost is ${overview.foodCostPct.toFixed(1)}% (benchmark 28–35%). ${supplyFindings.length > 0 ? `Procurement audit found ${supplyFindings.length} optimization opportunities worth ${fmtNum(supplyImpact)}: ${supplyFindings.map(f => f.title.en).join('; ')}.` : 'No supplier price spikes or overpayments detected.'}`,
+        ru: `Период: ${periodRu}. Food Cost составляет ${overview.foodCostPct.toFixed(1)}% (целевая норма 28–35%). ${supplyFindings.length > 0 ? `По закупкам и поставщикам выявлено ${supplyFindings.length} точек оптимизации на ${fmtNum(supplyImpact)}: ${supplyFindings.map(f => f.title.ru).join('; ')}.` : 'Скачков закупочных цен и переплат поставщикам не выявлено.'}`,
+        uz: `Davr: ${periodUz}. Food Cost ko‘rsatkichi ${overview.foodCostPct.toFixed(1)}% (maqsad 28–35%). ${supplyFindings.length > 0 ? `Xaridlar va yetkazib beruvchilar bo‘yicha ${fmtNum(supplyImpact)} tejash imkoniyati bor: ${supplyFindings.map(f => f.title.uz).join('; ')}.` : 'Narx keskin oshishi aniqlanmadi.'}`,
+        en: `Period: ${periodEn}. Current Food Cost is ${overview.foodCostPct.toFixed(1)}% (benchmark 28–35%). ${supplyFindings.length > 0 ? `Procurement audit found ${supplyFindings.length} optimization opportunities worth ${fmtNum(supplyImpact)}: ${supplyFindings.map(f => f.title.en).join('; ')}.` : 'No supplier price spikes or overpayments detected.'}`,
       },
       highlights: [
         `Food Cost: ${overview.foodCostPct.toFixed(1)}%`,
-        ...supplyFindings.map(f => `${f.code}: ${fmtNum(f.amountImpact)}`),
+        ...supplyFindings.slice(0, 3).map(f => `${f.code}: ${fmtNum(f.amountImpact)}`),
+        `Potential Savings: ${fmtNum(totalSaving)}`,
       ],
       relatedFindingCodes: [...new Set(supplyFindings.map(f => f.code))],
       source: 'heuristic',
@@ -394,13 +460,13 @@ export async function answerFinancialQuestion(params: {
 
   return {
     answer: {
-      ru: `Итоги «${restaurantName}»: выручка ${fmtNum(overview.revenue)}, расходы ${fmtNum(overview.totalExpenses)}, чистая прибыль ${fmtNum(overview.netProfit)} (маржа ${overview.netMarginPct.toFixed(1)}%). Главные статьи затрат: ${topCats || 'нет'}. Обнаружено ${findings.length} находок с общим потенциалом экономии ${fmtNum(totalSaving)}.${topError ? ` Приоритет №1: ${topError.title.ru}.` : ''}`,
-      uz: `«${restaurantName}» yakunlari: tushum ${fmtNum(overview.revenue)}, xarajatlar ${fmtNum(overview.totalExpenses)}, sof foyda ${fmtNum(overview.netProfit)} (marja ${overview.netMarginPct.toFixed(1)}%). Jami ${findings.length} ta muammo va ${fmtNum(totalSaving)} tejamkorlik salohiyati aniqlandi.${topError ? ` Birinchi navbatda: ${topError.title.uz}.` : ''}`,
-      en: `${restaurantName} summary: revenue ${fmtNum(overview.revenue)}, expenses ${fmtNum(overview.totalExpenses)}, net profit ${fmtNum(overview.netProfit)} (${overview.netMarginPct.toFixed(1)}% margin). Found ${findings.length} audit findings with ${fmtNum(totalSaving)} potential savings.${topError ? ` Top priority: ${topError.title.en}.` : ''}`,
+      ru: `Период: ${periodRu}. Итоги «${restaurantName}»: выручка ${fmtNum(overview.revenue)}, расходы ${fmtNum(overview.totalExpenses)} (налоги ${fmtNum(prioritySummary.taxesTotal)}, свет и ком. ${fmtNum(prioritySummary.utilitiesTotal)}), чистая прибыль ${fmtNum(overview.netProfit)} (маржа ${overview.netMarginPct.toFixed(1)}%). Главные статьи затрат: ${topCats || 'нет'}. Обнаружено ${findings.length} находок с общим потенциалом экономии ${fmtNum(totalSaving)}.${topError ? ` Приоритет №1: ${topError.title.ru}.` : ''}`,
+      uz: `Davr: ${periodUz}. «${restaurantName}» yakunlari: tushum ${fmtNum(overview.revenue)}, xarajatlar ${fmtNum(overview.totalExpenses)} (soliqlar ${fmtNum(prioritySummary.taxesTotal)}, elektr/kommunal ${fmtNum(prioritySummary.utilitiesTotal)}), sof foyda ${fmtNum(overview.netProfit)} (marja ${overview.netMarginPct.toFixed(1)}%). Jami ${findings.length} ta muammo va ${fmtNum(totalSaving)} tejamkorlik salohiyati aniqlandi.${topError ? ` Birinchi navbatda: ${topError.title.uz}.` : ''}`,
+      en: `Period: ${periodEn}. ${restaurantName} summary: revenue ${fmtNum(overview.revenue)}, expenses ${fmtNum(overview.totalExpenses)} (Taxes ${fmtNum(prioritySummary.taxesTotal)}, Utilities ${fmtNum(prioritySummary.utilitiesTotal)}), net profit ${fmtNum(overview.netProfit)} (${overview.netMarginPct.toFixed(1)}% margin). Found ${findings.length} audit findings with ${fmtNum(totalSaving)} potential savings.${topError ? ` Top priority: ${topError.title.en}.` : ''}`,
     },
     highlights: [
       `Revenue: ${fmtNum(overview.revenue)}`,
-      `Expenses: ${fmtNum(overview.totalExpenses)}`,
+      `Expenses: ${fmtNum(overview.totalExpenses)} (Priority: ${fmtNum(prioritySummary.priorityTotal)})`,
       `Net Profit: ${fmtNum(overview.netProfit)} (${overview.netMarginPct.toFixed(1)}%)`,
       `Potential Savings: ${fmtNum(totalSaving)}`,
     ],

@@ -43,7 +43,7 @@ export function CouriersPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="m-0 text-xl font-extrabold">Мои курьеры (Режим A)</h1>
+        <h1 className="m-0 text-xl font-semibold">Мои курьеры (Режим A)</h1>
         <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
           Собственные курьеры привязываются к ресторану только после согласия курьера в его аккаунте по коду
           приглашения.
@@ -97,7 +97,7 @@ export function CouriersPage() {
               {couriers.map(c => (
                 <tr key={c.affiliationId} className="border-b border-[var(--border)]">
                   <td className="px-4 py-3">
-                    <div className="font-extrabold">{c.name}</div>
+                    <div className="font-semibold">{c.name}</div>
                     <div className="text-[11px] text-[var(--muted)]">
                       @{c.username} {c.phone ? `· ${c.phone}` : ''}
                     </div>

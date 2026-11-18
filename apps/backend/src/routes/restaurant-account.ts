@@ -54,6 +54,7 @@ import {
 } from '../services/excel-csv.js';
 import { restaurantReceiptSignedUrl, storeRestaurantMedia } from '../services/media-storage.js';
 import { invalidateBusinessCache } from '../services/business-analytics.js';
+import { parseDatePeriodFromQuestion } from '../services/date-period-parser.js';
 import { ApiError, assert } from '../utils/errors.js';
 import { pageMetadata, paginationSchema } from '../utils/pagination.js';
 import { jsonValue } from '../utils/serialize.js';
@@ -1719,11 +1720,19 @@ async function computeRestaurantStatistics(
   restaurantId: string,
   fromStr?: string,
   toStr?: string,
+  periodText?: string,
 ): Promise<RestaurantStatisticsDto> {
   const now = new Date();
-  const to = toStr ? new Date(`${toStr.slice(0, 10)}T23:59:59.999Z`) : now;
-  const from = fromStr
-    ? new Date(`${fromStr.slice(0, 10)}T00:00:00.000Z`)
+  const parsedPeriod = periodText
+    ? parseDatePeriodFromQuestion(periodText, now)
+    : fromStr && !/^\d{4}-\d{2}-\d{2}/.test(fromStr)
+      ? parseDatePeriodFromQuestion(fromStr, now)
+      : null;
+  const effectiveFrom = parsedPeriod?.from ?? fromStr;
+  const effectiveTo = parsedPeriod?.to ?? toStr;
+  const to = effectiveTo ? new Date(`${effectiveTo.slice(0, 10)}T23:59:59.999Z`) : now;
+  const from = effectiveFrom
+    ? new Date(`${effectiveFrom.slice(0, 10)}T00:00:00.000Z`)
     : new Date(to.getTime() - 29 * 86_400_000);
 
   const startOfDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -1850,7 +1859,8 @@ restaurantAccountRouter.get('/statistics', async (req, res) => {
   const restaurant = await resolveOwnedRestaurant(req);
   const from = typeof req.query.from === 'string' ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' ? req.query.to : undefined;
-  const stats = await computeRestaurantStatistics(restaurant.id, from, to);
+  const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+  const stats = await computeRestaurantStatistics(restaurant.id, from, to, period);
   res.json({ data: stats });
 });
 
@@ -1859,7 +1869,8 @@ restaurantAccountRouter.get('/exports/statistics', async (req, res) => {
   const format = req.query.format === 'csv' ? 'csv' : 'xlsx';
   const from = typeof req.query.from === 'string' ? req.query.from : undefined;
   const to = typeof req.query.to === 'string' ? req.query.to : undefined;
-  const stats = await computeRestaurantStatistics(restaurant.id, from, to);
+  const period = typeof req.query.period === 'string' ? req.query.period : undefined;
+  const stats = await computeRestaurantStatistics(restaurant.id, from, to, period);
   const file = await exportStatisticsSpreadsheet({
     restaurantId: restaurant.id,
     userId: req.user!.id,

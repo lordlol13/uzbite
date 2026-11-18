@@ -1,9 +1,28 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { Language } from '@uzbite/shared';
 import { AgentBlocks } from './AgentBlocks';
 import { Icon } from './Icon';
 import { useAiWorkspace } from '../store/aiWorkspace';
 import { useSession } from '../store/session';
+
+const PRIORITY_DATE_PROMPTS: Record<Language, string[]> = {
+  ru: [
+    'Расходы за 15 ноября',
+    'Налоги и электричество за прошлую неделю',
+    'Базовые и доп. расходы за прошлую неделю',
+  ],
+  uz: [
+    '15-noyabr xarajatlari',
+    'O‘tgan haftadagi soliq va elektr xarajatlari',
+    'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar',
+  ],
+  en: [
+    'Expenses on November 15',
+    'Taxes & electricity for last week',
+    'Base vs additional expenses for last week',
+  ],
+};
 
 export function AiCopilotDrawer() {
   const { config, restaurant } = useSession();
@@ -63,39 +82,12 @@ export function AiCopilotDrawer() {
   }
 
   const screenPrompts = screenMeta.quickPrompts[lang];
+  const combinedPrompts = Array.from(new Set([...PRIORITY_DATE_PROMPTS[lang], ...screenPrompts]));
   const modelLabel = selectedModel === 'gemini-3-8-flash' ? 'Gemini 3.8' : selectedModel;
 
   return (
     <>
-      {/* Floating Bottom-Right Sleek Pill Button */}
-      {!drawerOpen && (
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          className="fixed right-6 bottom-6 z-40 flex items-center gap-2.5 rounded-full border border-white/20 px-4 py-3 text-xs font-extrabold text-white shadow-lg transition hover:scale-[1.02] hover:brightness-105 active:scale-[0.99]"
-          style={{
-            background: 'linear-gradient(125deg, #ff8528 0%, #f26812 65%, #d95206 100%)',
-            boxShadow: '0 10px 30px -6px rgba(248, 120, 29, 0.45)',
-          }}
-          title="Ctrl+K / Alt+A"
-        >
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/20">
-            <Icon name="sparkles" size={14} />
-          </span>
-          <span>
-            {lang === 'uz'
-              ? `AI-Chat · ${modelLabel}`
-              : lang === 'ru'
-                ? `AI-Чат · ${modelLabel}`
-                : `AI Chat · ${modelLabel}`}
-          </span>
-          <span className="rounded-md bg-black/20 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white/90">
-            Ctrl+K
-          </span>
-        </button>
-      )}
-
-      {/* Slide-Over Copilot Drawer */}
+      {/* Slide-Over Copilot Drawer (Triggered cleanly via Header AI pill or Ctrl+K) */}
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
@@ -110,22 +102,19 @@ export function AiCopilotDrawer() {
             {/* Drawer Header */}
             <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <div
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
-                  style={{ background: 'linear-gradient(135deg, #ff8528, #e85d0c)' }}
-                >
-                  <Icon name="sparkles" size={17} />
+                <div className="ai-pink-orb animate-orb-breathe flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white">
+                  <Icon name="sparkles" size={16} />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-extrabold">
+                    <span className="truncate text-sm font-semibold">
                       {lang === 'uz'
                         ? 'UzBite AI Copilot'
                         : lang === 'ru'
                           ? 'AI-Ассистент UzBite'
                           : 'UzBite AI Copilot'}
                     </span>
-                    <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+                    <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                       {modelLabel}
                     </span>
                   </div>
@@ -184,7 +173,7 @@ export function AiCopilotDrawer() {
 
             {/* Context-Aware Quick Suggestions Strip */}
             <div className="border-b border-[var(--border)] bg-[var(--surface)]/80 px-4 py-2.5">
-              <div className="mb-1.5 flex items-center justify-between text-[10px] font-extrabold uppercase tracking-wider text-[var(--muted)]">
+              <div className="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
                 <span>
                   {lang === 'uz'
                     ? 'Ekran bo‘yicha tezkor savollar'
@@ -197,7 +186,7 @@ export function AiCopilotDrawer() {
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {screenPrompts.map((prompt, idx) => (
+                {combinedPrompts.map((prompt, idx) => (
                   <button
                     key={idx}
                     type="button"
@@ -232,7 +221,7 @@ export function AiCopilotDrawer() {
                   <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
                     <Icon name="bot" size={22} />
                   </div>
-                  <div className="text-sm font-extrabold">
+                  <div className="text-sm font-semibold">
                     {lang === 'uz'
                       ? 'Savolingizni yozing yoki yuqoridagi ssenariyni tanlang'
                       : lang === 'ru'
@@ -269,7 +258,7 @@ export function AiCopilotDrawer() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--text)]">
+                          <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text)]">
                             {resp?.source === 'coarena'
                               ? `Coarena · ${resp.model}`
                               : resp?.model ?? 'UzBite AI'}

@@ -120,7 +120,7 @@ export function OnboardingPage() {
       <div className="card p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="m-0 text-xl font-extrabold">Первоначальная настройка ресторана</h1>
+            <h1 className="m-0 text-xl font-semibold">Первоначальная настройка ресторана</h1>
             <p className="mt-1 mb-0 text-xs text-[var(--muted)]">
               Шаг {step} из 6 · {steps[step - 1]}
             </p>
@@ -151,7 +151,7 @@ export function OnboardingPage() {
       <div className="card p-6">
         {step === 1 && (
           <div className="grid gap-4">
-            <h2 className="m-0 text-base font-extrabold">Шаг 1. Основная информация</h2>
+            <h2 className="m-0 text-base font-semibold">Шаг 1. Основная информация</h2>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-xs font-bold text-[var(--muted)]">
                 Название ресторана *
@@ -204,7 +204,7 @@ export function OnboardingPage() {
 
         {step === 2 && (
           <div className="grid gap-4">
-            <h2 className="m-0 text-base font-extrabold">Шаг 2. Адрес и точка на Яндекс Карте</h2>
+            <h2 className="m-0 text-base font-semibold">Шаг 2. Адрес и точка на Яндекс Карте</h2>
             <label className="text-xs font-bold text-[var(--muted)]">
               Текстовый адрес *
               <input
@@ -240,7 +240,7 @@ export function OnboardingPage() {
         {step === 3 && (
           <div className="grid gap-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="m-0 text-base font-extrabold">Шаг 3. График работы</h2>
+              <h2 className="m-0 text-base font-semibold">Шаг 3. График работы</h2>
               <select
                 className="input-field w-auto text-xs"
                 value={timezone}
@@ -307,7 +307,7 @@ export function OnboardingPage() {
 
         {step === 4 && (
           <div className="grid gap-4">
-            <h2 className="m-0 text-base font-extrabold">Шаг 4. Способы оплаты</h2>
+            <h2 className="m-0 text-base font-semibold">Шаг 4. Способы оплаты</h2>
             <label className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] p-3 text-xs font-bold">
               <input type="checkbox" checked={acceptCash} onChange={e => setAcceptCash(e.target.checked)} />
               Принимать наличные при доставке
@@ -359,7 +359,7 @@ export function OnboardingPage() {
 
         {step === 5 && (
           <div className="grid gap-4">
-            <h2 className="m-0 text-base font-extrabold">Шаг 5. Способы доставки</h2>
+            <h2 className="m-0 text-base font-semibold">Шаг 5. Способы доставки</h2>
             <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] p-4">
               <input
                 type="checkbox"
@@ -368,7 +368,7 @@ export function OnboardingPage() {
                 onChange={e => setOwnCouriersEnabled(e.target.checked)}
               />
               <div>
-                <div className="text-xs font-extrabold">Режим A · Собственные курьеры ресторана</div>
+                <div className="text-xs font-semibold">Режим A · Собственные курьеры ресторана</div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   Приглашайте и выбирайте курьеров, прикреплённых к вашему ресторану.
                 </div>
@@ -382,7 +382,7 @@ export function OnboardingPage() {
                 onChange={e => setOnDemandCouriersEnabled(e.target.checked)}
               />
               <div>
-                <div className="text-xs font-extrabold">Режим B · Заказные курьеры UzBite</div>
+                <div className="text-xs font-semibold">Режим B · Заказные курьеры UzBite</div>
                 <div className="mt-1 text-xs text-[var(--muted)]">
                   Поиск свободных курьеров платформы по принципу вызова такси.
                 </div>
@@ -424,7 +424,7 @@ export function OnboardingPage() {
 
         {step === 6 && (
           <div className="grid gap-4">
-            <h2 className="m-0 text-base font-extrabold">Шаг 6. Предпросмотр профиля ресторана</h2>
+            <h2 className="m-0 text-base font-semibold">Шаг 6. Предпросмотр профиля ресторана</h2>
             <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
               <img
                 src={resolveMediaUrl(coverUrl, config.apiBaseUrl)}
@@ -439,7 +439,7 @@ export function OnboardingPage() {
                     className="h-14 w-14 rounded-full border-2 border-[var(--surface)] object-cover"
                   />
                   <div>
-                    <div className="text-base font-extrabold">{name || 'Без названия'}</div>
+                    <div className="text-base font-semibold">{name || 'Без названия'}</div>
                     <div className="text-xs text-[var(--muted)]">{addressText || 'Адрес не указан'}</div>
                   </div>
                 </div>

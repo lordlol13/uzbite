@@ -58,7 +58,7 @@ export function SalesPage({
     <div className="grid gap-5">
       <div className="card p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h1 className="m-0 text-sm font-extrabold">{t.menuEngineering}</h1>
+          <h1 className="m-0 text-sm font-semibold">{t.menuEngineering}</h1>
           <div className="flex gap-2">
             <button type="button" onClick={exportMenuCsv} className="btn-secondary text-xs">
               {t.exportCsv}
@@ -129,10 +129,10 @@ export function SalesPage({
                     </td>
                     <td className="py-2.5 pr-3 text-right tabular-nums">{d.quantitySold}</td>
                     <td className="py-2.5 pr-3 text-right tabular-nums">{fmtMoney(d.revenue, lang)}</td>
-                    <td className={`py-2.5 pr-3 text-right font-extrabold tabular-nums ${d.totalProfit < 0 ? 'text-[var(--bad)]' : ''}`}>
+                    <td className={`py-2.5 pr-3 text-right font-semibold tabular-nums ${d.totalProfit < 0 ? 'text-[var(--bad)]' : ''}`}>
                       {fmtMoney(d.totalProfit, lang)}
                     </td>
-                    <td className="py-2.5 pr-2 text-center font-extrabold">{d.abcClass}</td>
+                    <td className="py-2.5 pr-2 text-center font-semibold">{d.abcClass}</td>
                     <td className="py-2.5 text-right">
                       <span className="rounded-md bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-bold">
                         {d.quadrant}
@@ -151,7 +151,7 @@ export function SalesPage({
       </div>
 
       <div className="card p-5">
-        <h2 className="m-0 mb-3 text-sm font-extrabold">{t.hourlyHeatmap}</h2>
+        <h2 className="m-0 mb-3 text-sm font-semibold">{t.hourlyHeatmap}</h2>
         <HourlyHeatmap cells={heatmap} lang={lang} />
       </div>
     </div>

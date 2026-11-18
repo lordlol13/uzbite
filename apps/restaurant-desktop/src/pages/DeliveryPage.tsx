@@ -19,7 +19,7 @@ export function DeliveryPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="m-0 text-xl font-extrabold">Доставки ресторана</h1>
+        <h1 className="m-0 text-xl font-semibold">Доставки ресторана</h1>
         <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
           Отслеживание всех активных и завершённых доставок (собственные и заказные курьеры UzBite)
         </p>
@@ -58,7 +58,7 @@ export function DeliveryPage() {
                     onClick={() => navigate(`/orders/${d.orderId}`)}
                     className="cursor-pointer border-b border-[var(--border)] hover:bg-[var(--surface-2)]"
                   >
-                    <td className="px-4 py-3 font-extrabold tabular-nums">#{d.orderId.slice(-6)}</td>
+                    <td className="px-4 py-3 font-semibold tabular-nums">#{d.orderId.slice(-6)}</td>
                     <td className="px-4 py-3 font-semibold">{deliveryModeLabel(d.mode)}</td>
                     <td className="px-4 py-3">
                       <StatusPill label={st.label} tone={st.tone} />

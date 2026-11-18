@@ -30,8 +30,21 @@ import { callCoarenaChat, extractJsonFromText, type CoarenaMessage } from './coa
 import {
   calculateDeduplicatedSavings,
   categoryLabel,
+  computePriorityExpenseSummary,
+  expensePriorityLabel,
+  getExpensePriorityTier,
+  PRIORITY_EXPENSE_CATEGORIES,
+  BASE_EXPENSE_CATEGORIES,
+  ADDITIONAL_EXPENSE_CATEGORIES,
   theilSenSlope,
+  type AnalysisExpenseInput,
+  type PriorityExpenseSummary,
 } from './finance-analysis.js';
+import {
+  formatDateRangeLabel,
+  parseDatePeriodFromQuestion,
+  type ParsedDatePeriod,
+} from './date-period-parser.js';
 import {
   HEATMAP_GRID_DEG,
   HEATMAP_MIN_K_ANONYMITY,
@@ -832,9 +845,25 @@ export const MCP_TOOLS: McpToolDescriptor[] = [
     },
   },
   {
+    name: 'get_expenses',
+    description:
+      'Fetch itemized expenses for an exact date or date range (YYYY-MM-DD..YYYY-MM-DD), grouped by Priority (Taxes, Electricity/Utilities), Base, and Additional costs.',
+    category: 'point_26',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'YYYY-MM-DD' },
+        to: { type: 'string', description: 'YYYY-MM-DD' },
+        category: { type: 'string', description: 'Optional ExpenseCategory filter' },
+        group: { type: 'string', enum: ['priority', 'base', 'additional'] },
+        limit: { type: 'number', description: 'Max rows (default 50)' },
+      },
+    },
+  },
+  {
     name: 'control_app_dashboard',
     description:
-      'Navigate the desktop UI to a tab, update active filters (branch, days, month, district), highlight a widget, or manage custom dashboards (create, update/append, rename, switch, delete, remove widget, pin/unpin).',
+      'Navigate the desktop UI to a tab, update active filters (branch, days, from/to dates, month, district), highlight a widget, or manage custom dashboards (create, update/append, rename, switch, delete, remove widget, pin/unpin).',
     category: 'ui_control',
     inputSchema: {
       type: 'object',
@@ -863,6 +892,8 @@ export const MCP_TOOLS: McpToolDescriptor[] = [
         blockKind: { type: 'string', enum: ['kpis', 'chart', 'table', 'alert', 'map', 'allocation'] },
         restaurantId: { type: 'string' },
         days: { type: 'number', enum: [7, 30, 60, 90] },
+        from: { type: 'string', description: 'YYYY-MM-DD' },
+        to: { type: 'string', description: 'YYYY-MM-DD' },
         month: { type: 'string' },
         districtId: { type: 'string' },
         widgetId: { type: 'string' },
@@ -909,6 +940,40 @@ function buildLossDeliveryAuditFindings(geo: DistrictGeoAnalysisResponse) {
     });
 }
 
+async function fetchExpensesForPeriod(
+  restaurantId: string,
+  fromDate: Date,
+  toDate: Date,
+  opts?: { categories?: SharedExpenseCategory[]; limit?: number },
+): Promise<AnalysisExpenseInput[]> {
+  const rows = await db.expense.findMany({
+    where: {
+      restaurantId,
+      spentAt: { gte: fromDate, lte: toDate },
+      ...(opts?.categories && opts.categories.length > 0
+        ? { category: { in: opts.categories } }
+        : {}),
+    },
+    include: { supplier: { select: { name: true } } },
+    orderBy: [{ spentAt: 'desc' }, { amount: 'desc' }],
+    ...(opts?.limit ? { take: opts.limit } : {}),
+  });
+  return rows.map(r => ({
+    id: r.id,
+    supplierId: r.supplierId,
+    supplierName: r.supplier?.name ?? null,
+    category: r.category as SharedExpenseCategory,
+    itemName: r.itemName,
+    description: r.description,
+    amount: r.amount.toNumber(),
+    quantity: r.quantity ? r.quantity.toNumber() : null,
+    unit: r.unit,
+    unitPrice: r.unitPrice ? r.unitPrice.toNumber() : null,
+    invoiceNumber: r.invoiceNumber,
+    spentAt: r.spentAt,
+  }));
+}
+
 export async function executeMcpTool(
   name: string,
   args: Record<string, unknown>,
@@ -925,6 +990,55 @@ export async function executeMcpTool(
   switch (name) {
     case 'get_financial_overview':
       return getBusinessOverview(context.restaurantId, from, to);
+    case 'get_expenses': {
+      const range = resolveDateRange(from, to);
+      const groupArg =
+        args.group === 'priority' || args.group === 'base' || args.group === 'additional'
+          ? args.group
+          : undefined;
+      const categoryArg =
+        typeof args.category === 'string' ? (args.category as SharedExpenseCategory) : undefined;
+      const categories = categoryArg
+        ? [categoryArg]
+        : groupArg === 'priority'
+          ? [...PRIORITY_EXPENSE_CATEGORIES]
+          : groupArg === 'base'
+            ? [...BASE_EXPENSE_CATEGORIES]
+            : groupArg === 'additional'
+              ? [...ADDITIONAL_EXPENSE_CATEGORIES]
+              : undefined;
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.min(200, args.limit) : 50;
+      const items = await fetchExpensesForPeriod(context.restaurantId, range.from, range.to, {
+        categories,
+        limit,
+      });
+      const prioritySummary = computePriorityExpenseSummary({ expenses: items });
+      return {
+        period: {
+          from: range.from.toISOString().slice(0, 10),
+          to: range.to.toISOString().slice(0, 10),
+          days: range.days,
+        },
+        prioritySummary,
+        totalCount: items.length,
+        totalAmount: Math.round(items.reduce((s, i) => s + i.amount, 0)),
+        items: items.map(i => ({
+          id: i.id,
+          spentAt: i.spentAt.toISOString().slice(0, 10),
+          category: i.category,
+          priorityTier: getExpensePriorityTier(i.category),
+          itemName: i.itemName,
+          description: i.description,
+          supplierName: i.supplierName,
+          quantity: i.quantity,
+          unit: i.unit,
+          unitPrice: i.unitPrice,
+          amount: Math.round(i.amount),
+          invoiceNumber: i.invoiceNumber,
+        })),
+      };
+    }
+    case 'analyze_losses':
     case 'audit_expenses_and_waste': {
       const [analysis, geo] = await Promise.all([
         runRestaurantAnalysis(context.restaurantId, from, to),
@@ -959,6 +1073,7 @@ export async function executeMcpTool(
         })),
       };
     }
+    case 'get_budget_variance':
     case 'check_budget_execution':
       return computeBudgetVarianceAndForecast(context.restaurantId, month);
     case 'optimize_branch_budgets':
@@ -1097,7 +1212,7 @@ export function parseScenarioAssumptions(question: string): ParsedScenarioAssump
 }
 
 const CATEGORY_INTENT_PATTERNS: Array<{ category: SharedExpenseCategory; re: RegExp }> = [
-  { category: 'UTILITIES', re: /(коммунал|свет|электр|газ|вода|тепло|elektr|suv|gaz|kommunal|utilit)/i },
+  { category: 'UTILITIES', re: /(коммунал|свет|электр|квт|газ|вода|тепло|рэс|худудгаз|сувсоз|elektr|suv|gaz|kommunal|utilit|kwh)/i },
   { category: 'RENT', re: /(аренд|ижар|ijara|rent|lease)/i },
   { category: 'COMMUNICATION', re: /(связ|интернет|телефон|aloqa|telecom|communicat)/i },
   { category: 'INGREDIENTS', re: /(сырь|продукт|ингредиент|мяс|рис|масалли|masalliq|mahsulot|ingredient|food)/i },
@@ -1106,16 +1221,18 @@ const CATEGORY_INTENT_PATTERNS: Array<{ category: SharedExpenseCategory; re: Reg
   { category: 'DELIVERY', re: /(доставк|курьер|yetkazish|kuryer|delivery)/i },
   { category: 'PACKAGING', re: /(упаков|посуд|qadoq|packag)/i },
   { category: 'EQUIPMENT', re: /(оборудован|инвентар|uskuna|equipment)/i },
-  { category: 'TAXES', re: /(налог|soliq|tax)/i },
+  { category: 'TAXES', re: /(налог|ндс|есп|ндфл|гнк|енп|сбор|soliq|qqs|boj|tax|taxes|vat|fiscal)/i },
 ];
 
-export function detectQuestionIntents(q: string): {
+export function detectQuestionIntents(q: string, now: Date = new Date()): {
   isMap: boolean;
   isBranchAlloc: boolean;
   isBudget: boolean;
   isAudit: boolean;
   isWhatIf: boolean;
   isSales: boolean;
+  isExpenseQuery: boolean;
+  isPriorityQuery: boolean;
   isCreateDashboard: boolean;
   isUpdateDashboard: boolean;
   dashboardUpdateMode: 'append' | 'replace';
@@ -1135,6 +1252,7 @@ export function detectQuestionIntents(q: string): {
   requestedRestaurantId: string | null;
   requestedAmountUZS: number | null;
   requestedDays: number | null;
+  parsedPeriod: ParsedDatePeriod | null;
   requestedHighlightWidget: string | null;
   requestedDashboardTitle: string | null;
 } {
@@ -1145,6 +1263,9 @@ export function detectQuestionIntents(q: string): {
   const isAudit = /(ошиб|дубл|аудит|эконом|сократ|свет|электр|связ|постав|xato|dublikat|teja|elektr|aloqa|audit|error|duplicate|saving|cost|26)/i.test(lower);
   const isWhatIf = /(сценар|если|инфляц|тариф|повыс|what.?if|simulat|ssenariy|inflyatsiya|tarif)/i.test(lower);
   const isSales = /(продаж|меню|блюд|маржинал|abc|star|dog|savdo|taom|menyu|sales|menu\b|dish)/i.test(lower);
+  const isExpenseQuery = /(расход|затрат|трат|накладн|сч[её]т|налог|ндс|есп|ндфл|электр|свет|квт|коммунал|газ|вод|базов|дополнит|xarajat|sarflar|soliq|qqs|elektr|svet|kommunal|asosiy|qo'shimcha|expense|spend|spending|cost|tax|taxes|vat|electric|utilit|base|additional)/i.test(lower);
+  const isPriorityQuery = /(налог|ндс|есп|ндфл|электр|свет|квт|коммунал|приоритет|базов|дополнит|soliq|qqs|elektr|svet|kommunal|asosiy|qo'shimcha|ustuvor|tax|taxes|vat|electric|kwh|utilit|priority|base|additional)/i.test(lower);
+  const parsedPeriod = parseDatePeriodFromQuestion(q, now);
 
   const hasDashboardWord = /(дашборд|панел|виджет|борд|dashboard|custom\s+board)/i.test(lower);
 
@@ -1290,6 +1411,10 @@ export function detectQuestionIntents(q: string): {
     requestedDays = 90;
   }
 
+  if (!requestedDays && parsedPeriod && [7, 30, 60, 90].includes(parsedPeriod.days)) {
+    requestedDays = parsedPeriod.days;
+  }
+
   let requestedHighlightWidget: string | null = null;
   if (/(подсвет|выдел|фокус|покажи\s+виджет|highlight|focus|ajratib)/i.test(lower)) {
     if (/(здоров|health|salomatlik)/i.test(lower)) requestedHighlightWidget = 'widget-health';
@@ -1307,6 +1432,8 @@ export function detectQuestionIntents(q: string): {
     isAudit,
     isWhatIf,
     isSales,
+    isExpenseQuery,
+    isPriorityQuery,
     isCreateDashboard,
     isUpdateDashboard,
     dashboardUpdateMode,
@@ -1326,6 +1453,7 @@ export function detectQuestionIntents(q: string): {
     requestedRestaurantId,
     requestedAmountUZS,
     requestedDays,
+    parsedPeriod,
     requestedHighlightWidget,
     requestedDashboardTitle,
   };
@@ -1884,6 +2012,194 @@ export function buildCustomDashboardSpec(params: {
   return { title, label, blocks: blocks.slice(0, 4) };
 }
 
+export function buildPriorityExpenseBlocks(params: {
+  lang: Language;
+  periodLabel: string;
+  fromStr: string;
+  toStr: string;
+  overview: BusinessAnalysisResponse['overview'];
+  expenses: AnalysisExpenseInput[];
+  requestedCategories?: SharedExpenseCategory[];
+}): { blocks: AgentUiBlock[]; summary: PriorityExpenseSummary } {
+  const { lang, periodLabel, fromStr, toStr, overview, expenses, requestedCategories } = params;
+  const summary = computePriorityExpenseSummary({ overview, expenses });
+  const revUnit = lang === 'ru' ? 'выр.' : lang === 'uz' ? 'tushum' : 'rev';
+  const expUnit = lang === 'ru' ? 'расх.' : lang === 'uz' ? 'xarajat' : 'exp';
+
+  const elecSub =
+    summary.electricityKwh > 0
+      ? `${Math.round(summary.electricityKwh).toLocaleString('ru-RU')} ${lang === 'ru' ? 'кВт·ч' : lang === 'uz' ? 'kVt·soat' : 'kWh'} · ${fmtUzs(summary.electricityTotal)}`
+      : `${summary.utilitiesPctOfRevenue}% ${revUnit}`;
+
+  const blocks: AgentUiBlock[] = [
+    {
+      id: 'blk-priority-kpis',
+      kind: 'kpis',
+      title:
+        lang === 'ru'
+          ? `Приоритетные расходы · ${periodLabel}`
+          : lang === 'uz'
+            ? `Ustuvor xarajatlar · ${periodLabel}`
+            : `Priority Expenses · ${periodLabel}`,
+      items: [
+        {
+          label:
+            lang === 'ru'
+              ? 'Налоги (Приоритет)'
+              : lang === 'uz'
+                ? 'Soliqlar (Ustuvor)'
+                : 'Taxes (Priority)',
+          value: fmtUzs(summary.taxesTotal),
+          sublabel: `${summary.taxesPctOfRevenue}% ${revUnit} · ${summary.taxesShareOfExpensesPct}% ${expUnit}`,
+          tone: summary.taxesPctOfRevenue > 14 ? 'warn' : 'neutral',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Свет и ком. (Приоритет)'
+              : lang === 'uz'
+                ? 'Elektr va kom. (Ustuvor)'
+                : 'Electricity & Util. (Priority)',
+          value: fmtUzs(summary.utilitiesTotal),
+          sublabel: elecSub,
+          tone: summary.utilitiesPctOfRevenue > 8 ? 'warn' : 'neutral',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Базовые (Сырьё, ФОТ, Аренда)'
+              : lang === 'uz'
+                ? 'Asosiy (Masalliq, Ish haqi, Ijara)'
+                : 'Base (Ingredients, Payroll, Rent)',
+          value: fmtUzs(summary.baseTotal),
+          sublabel: `${summary.baseSharePct}% ${expUnit}`,
+          tone: 'neutral',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Дополнительные расходы'
+              : lang === 'uz'
+                ? 'Qo‘shimcha xarajatlar'
+                : 'Additional Expenses',
+          value: fmtUzs(summary.additionalTotal),
+          sublabel: `${summary.additionalSharePct}% ${expUnit}`,
+          tone: 'neutral',
+        },
+      ],
+    },
+    {
+      id: 'blk-priority-chart',
+      kind: 'chart',
+      chartType: 'horizontal_bar',
+      title:
+        lang === 'ru'
+          ? `Приоритет vs Базовые vs Доп. (${fromStr === toStr ? fromStr : `${fromStr}–${toStr}`})`
+          : lang === 'uz'
+            ? `Ustuvor vs Asosiy vs Qo‘shimcha (${fromStr === toStr ? fromStr : `${fromStr}–${toStr}`})`
+            : `Priority vs Base vs Additional (${fromStr === toStr ? fromStr : `${fromStr}–${toStr}`})`,
+      items: [
+        {
+          label:
+            lang === 'ru'
+              ? 'Налоги (TAXES)'
+              : lang === 'uz'
+                ? 'Soliqlar (TAXES)'
+                : 'Taxes (TAXES)',
+          value: summary.taxesTotal,
+          color: '#EC5180',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Свет и ком. (UTILITIES/COMM)'
+              : lang === 'uz'
+                ? 'Elektr va kommunal'
+                : 'Electricity & Utilities',
+          value: summary.utilitiesTotal,
+          color: '#8172FF',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Базовые (Сырьё, ФОТ, Аренда)'
+              : lang === 'uz'
+                ? 'Asosiy xarajatlar'
+                : 'Base Costs',
+          value: summary.baseTotal,
+          color: '#36B89A',
+        },
+        {
+          label:
+            lang === 'ru'
+              ? 'Дополнительные'
+              : lang === 'uz'
+                ? 'Qo‘shimcha xarajatlar'
+                : 'Additional Costs',
+          value: summary.additionalTotal,
+          color: '#F59E0B',
+        },
+      ],
+    },
+  ];
+
+  const reqSet = new Set(requestedCategories ?? []);
+  const filtered =
+    reqSet.size > 0 && expenses.some(e => reqSet.has(e.category))
+      ? expenses.filter(e => reqSet.has(e.category))
+      : expenses;
+
+  const tierRank = { PRIORITY: 0, BASE: 1, ADDITIONAL: 2 } as const;
+  const sortedExpenses = [...filtered].sort((a, b) => {
+    const tDiff = tierRank[getExpensePriorityTier(a.category)] - tierRank[getExpensePriorityTier(b.category)];
+    if (tDiff !== 0) return tDiff;
+    const dDiff = b.spentAt.getTime() - a.spentAt.getTime();
+    if (dDiff !== 0) return dDiff;
+    return b.amount - a.amount;
+  });
+
+  if (sortedExpenses.length > 0) {
+    const sliced = sortedExpenses.slice(0, 15);
+    const highlightRowIndices = sliced
+      .map((e, idx) => (getExpensePriorityTier(e.category) === 'PRIORITY' ? idx : -1))
+      .filter(idx => idx >= 0);
+
+    blocks.push({
+      id: 'blk-expenses-table',
+      kind: 'table',
+      title:
+        lang === 'ru'
+          ? `Расходы за ${periodLabel} (${sortedExpenses.length} поз.)`
+          : lang === 'uz'
+            ? `${periodLabel} uchun xarajatlar (${sortedExpenses.length} ta)`
+            : `Itemized Expenses · ${periodLabel} (${sortedExpenses.length})`,
+      columns:
+        lang === 'ru'
+          ? ['Дата', 'Приоритет / Категория', 'Позиция', 'Поставщик', 'Сумма']
+          : lang === 'uz'
+            ? ['Sana', 'Ustuvorlik / Toifa', 'Nomi', 'Yetkazib beruvchi', 'Summa']
+            : ['Date', 'Priority / Category', 'Item', 'Supplier', 'Amount'],
+      rows: sliced.map(e => {
+        const tier = getExpensePriorityTier(e.category);
+        const itemText =
+          e.quantity !== null && e.unit
+            ? `${e.itemName} (${e.quantity} ${e.unit})`
+            : e.itemName;
+        return [
+          e.spentAt.toISOString().slice(0, 10),
+          `[${expensePriorityLabel(tier, lang)}] ${categoryLabel(e.category, lang)}`,
+          itemText,
+          e.supplierName ?? '—',
+          fmtUzs(e.amount),
+        ];
+      }),
+      highlightRowIndices,
+    });
+  }
+
+  return { blocks, summary };
+}
+
 export async function runFinanceAgentChat(params: {
   question: string;
   lang: Language;
@@ -1900,7 +2216,9 @@ export async function runFinanceAgentChat(params: {
 }): Promise<AgentChatResponse> {
   const { question, lang, restaurantName } = params;
   const requestedModel = params.model?.trim() || 'gemini-3-8-flash';
-  const intents = detectQuestionIntents(question);
+  const now = new Date();
+  const intents = detectQuestionIntents(question, now);
+  const parsedPeriod = intents.parsedPeriod;
   const targetRestaurantId = intents.requestedRestaurantId ?? params.restaurantId;
   const activeDistrictId =
     intents.requestedDistrict ??
@@ -1915,10 +2233,13 @@ export async function runFinanceAgentChat(params: {
   const suggestedActions: AgentClientAction[] = [];
   const relatedFindingCodes = new Set<string>();
 
-  const month = params.month ?? params.screenContext?.month ?? new Date().toISOString().slice(0, 7);
-  const { from, to } = resolveDateRange(params.from, params.to);
+  const effectiveFromParam = parsedPeriod?.from ?? params.from;
+  const effectiveToParam = parsedPeriod?.to ?? params.to;
+  const month = parsedPeriod?.month ?? params.month ?? params.screenContext?.month ?? now.toISOString().slice(0, 7);
+  const { from, to } = resolveDateRange(effectiveFromParam, effectiveToParam, now);
   const fromStr = from.toISOString().slice(0, 10);
   const toStr = to.toISOString().slice(0, 10);
+  const periodLabel = parsedPeriod?.label[lang] ?? formatDateRangeLabel(fromStr, toStr, lang);
 
   const normalizedQ = question.trim().toLowerCase();
   const screenCachePart = `${params.screenContext?.activeTab ?? ''}::${params.screenContext?.restaurantRoute ?? ''}::${params.screenContext?.activeCustomDashboardId ?? ''}::${(params.screenContext?.customDashboards ?? []).map(d => `${d.id}:${d.title}`).join('|')}::${activeDistrictId ?? ''}::${(params.screenContext?.summaryText ?? '').slice(0, 80)}`;
@@ -1951,8 +2272,17 @@ export async function runFinanceAgentChat(params: {
     intents.isAudit ||
     intents.isWhatIf ||
     intents.isSales ||
+    intents.isExpenseQuery ||
+    intents.isPriorityQuery ||
+    Boolean(parsedPeriod) ||
     hasDashboardControlIntent;
 
+  const needExpenses =
+    Boolean(parsedPeriod) ||
+    intents.isExpenseQuery ||
+    intents.isPriorityQuery ||
+    intents.isAudit ||
+    intents.requestedCategories.length > 0;
   const needGeo =
     intents.isMap ||
     intents.isAudit ||
@@ -1968,6 +2298,7 @@ export async function runFinanceAgentChat(params: {
 
   const toolState: {
     analysis: BusinessAnalysisResponse | null;
+    expensesPeriod: AnalysisExpenseInput[];
     geoData: DistrictGeoAnalysisResponse | null;
     varianceData: BudgetVarianceItem[] | null;
     branchData: BranchAllocationResponse | null;
@@ -1975,6 +2306,7 @@ export async function runFinanceAgentChat(params: {
     auditTriggered: boolean;
   } = {
     analysis: null,
+    expensesPeriod: [],
     geoData: null,
     varianceData: null,
     branchData: null,
@@ -1995,6 +2327,23 @@ export async function runFinanceAgentChat(params: {
       });
     })(),
   ];
+
+  if (needExpenses) {
+    jobs.push(
+      (async () => {
+        const s = Date.now();
+        const rows = await fetchExpensesForPeriod(targetRestaurantId, from, to);
+        toolState.expensesPeriod = rows;
+        const prio = computePriorityExpenseSummary({ expenses: rows });
+        traces.push({
+          tool: 'get_expenses',
+          args: { restaurantId: targetRestaurantId, from: fromStr, to: toStr },
+          durationMs: Date.now() - s,
+          summary: `${rows.length} expenses (${fmtUzs(prio.totalExpenses)}), Taxes ${fmtUzs(prio.taxesTotal)}, Utilities ${fmtUzs(prio.utilitiesTotal)}`,
+        });
+      })(),
+    );
+  }
 
   if (needGeo) {
     jobs.push(
@@ -2079,25 +2428,57 @@ export async function runFinanceAgentChat(params: {
 
   const analysis = toolState.analysis!;
 
-  if (intents.requestedRestaurantId && intents.requestedRestaurantId !== params.restaurantId) {
+  if (parsedPeriod) {
     autoActions.push({
       type: 'set_filters',
-      restaurantId: intents.requestedRestaurantId,
-      label: `Branch: ${intents.requestedRestaurantId}`,
-    });
-  }
-
-  if (intents.requestedDays) {
-    autoActions.push({
-      type: 'set_filters',
-      days: intents.requestedDays,
+      from: fromStr,
+      to: toStr,
+      ...(parsedPeriod.days === 7 || parsedPeriod.days === 30 || parsedPeriod.days === 60 || parsedPeriod.days === 90
+        ? { days: parsedPeriod.days }
+        : {}),
+      ...(parsedPeriod.kind === 'month' ? { month } : {}),
+      ...(intents.requestedRestaurantId && intents.requestedRestaurantId !== params.restaurantId
+        ? { restaurantId: intents.requestedRestaurantId }
+        : {}),
+      ...(intents.requestedDistrict ? { districtId: intents.requestedDistrict } : {}),
       label:
         lang === 'uz'
-          ? `Davr: ${intents.requestedDays} kun`
+          ? `Davr: ${parsedPeriod.label.uz}`
           : lang === 'ru'
-            ? `Период: ${intents.requestedDays} дн.`
-            : `Period: ${intents.requestedDays}d`,
+            ? `Период: ${parsedPeriod.label.ru}`
+            : `Period: ${parsedPeriod.label.en}`,
     });
+  } else {
+    if (intents.requestedRestaurantId && intents.requestedRestaurantId !== params.restaurantId) {
+      autoActions.push({
+        type: 'set_filters',
+        restaurantId: intents.requestedRestaurantId,
+        label: `Branch: ${intents.requestedRestaurantId}`,
+      });
+    }
+
+    if (intents.requestedDays) {
+      autoActions.push({
+        type: 'set_filters',
+        from: fromStr,
+        to: toStr,
+        days: intents.requestedDays,
+        label:
+          lang === 'uz'
+            ? `Davr: ${intents.requestedDays} kun`
+            : lang === 'ru'
+              ? `Период: ${intents.requestedDays} дн.`
+              : `Period: ${intents.requestedDays}d`,
+      });
+    }
+
+    if (intents.requestedDistrict) {
+      autoActions.push({
+        type: 'set_filters',
+        districtId: intents.requestedDistrict,
+        label: `Filter: ${intents.requestedDistrict}`,
+      });
+    }
   }
 
   if (intents.requestedNavTab) {
@@ -2129,19 +2510,23 @@ export async function runFinanceAgentChat(params: {
       label: `Highlight ${intents.requestedHighlightWidget}`,
     });
   }
-  if (intents.requestedDistrict) {
-    autoActions.push({
-      type: 'set_filters',
-      districtId: intents.requestedDistrict,
-      label: `Filter: ${intents.requestedDistrict}`,
-    });
-  }
+
+  const prioritySummary = computePriorityExpenseSummary({
+    overview: analysis.overview,
+    expenses: toolState.expensesPeriod,
+  });
 
   const buildGroundTruthPayload = () => {
     const lossFindings = toolState.geoData ? buildLossDeliveryAuditFindings(toolState.geoData) : [];
     const combinedFindings = [...analysis.findings, ...lossFindings];
     const gt = {
       branch: restaurantName,
+      resolvedPeriod: {
+        from: fromStr,
+        to: toStr,
+        days: analysis.overview.period.days,
+        label: periodLabel,
+      },
       screenContext: {
         activeTab: params.screenContext?.activeTab ?? 'agent',
         ...(params.screenContext?.restaurantRoute ? { restaurantRoute: params.screenContext.restaurantRoute } : {}),
@@ -2163,6 +2548,21 @@ export async function runFinanceAgentChat(params: {
           lossFindings.reduce((s, f) => s + f.amountImpact, 0),
         healthScore: analysis.report.healthScore,
       },
+      priorityExpenses: prioritySummary,
+      ...(needExpenses && toolState.expensesPeriod.length > 0
+        ? {
+            itemizedExpenses: toolState.expensesPeriod.slice(0, 15).map(e => ({
+              spentAt: e.spentAt.toISOString().slice(0, 10),
+              category: e.category,
+              priorityTier: getExpensePriorityTier(e.category),
+              itemName: e.itemName,
+              supplier: e.supplierName,
+              quantity: e.quantity,
+              unit: e.unit,
+              amountUZS: Math.round(e.amount),
+            })),
+          }
+        : {}),
       ...(toolState.varianceData
         ? {
             budgetVariance: toolState.varianceData.slice(0, 6).map(v => ({
@@ -2228,6 +2628,7 @@ export async function runFinanceAgentChat(params: {
 
   if (env.COARENA_API_KEY) {
     const FALLBACK_MCP_TOOL_NAMES = new Set([
+      'get_expenses',
       'optimize_branch_budgets',
       'check_budget_execution',
       'analyze_district_orders',
@@ -2257,6 +2658,8 @@ export async function runFinanceAgentChat(params: {
                 properties: {
                   tab: { type: 'string', enum: ['dashboard', 'agent', 'audit', 'expenses', 'budgets', 'branches', 'map', 'sales'] },
                   districtId: { type: 'string' },
+                  from: { type: 'string' },
+                  to: { type: 'string' },
                 },
               },
             },
@@ -2269,6 +2672,8 @@ export async function runFinanceAgentChat(params: {
       content: [
         'You are the UzBite AI Financial Controller & Branch Advisor (Hackathon Cases #24, #25, #26 + Tashkent Geo Map).',
         'Strictly use ONLY verified numbers from GroundTruth JSON and tool outputs. Never invent or round into new numbers.',
+        'Always state GroundTruth.resolvedPeriod explicitly in your reply when a date or period is discussed.',
+        'Prioritize Taxes (TAXES), Electricity/Utilities (UTILITIES, COMMUNICATION + kWh if present), and contrast Base (INGREDIENTS, SALARY, RENT) vs Additional expenses.',
         'If GroundTruth.screenContext.summaryText is present and the user asks about the current screen/chart, explain it directly using screenContext and GroundTruth.',
         `Write 2-3 sharp sentences strictly in ${langName} with concrete UZS figures and next steps.`,
         'Return valid JSON: { "reply": string }.',
@@ -2412,12 +2817,16 @@ export async function runFinanceAgentChat(params: {
             if (tab && !autoActions.some(a => a.type === 'navigate' && a.tab === tab)) {
               autoActions.push({ type: 'navigate', tab, label: `Open ${tab}` });
             }
-            if ((dId || daysArg) && !autoActions.some(a => a.type === 'set_filters')) {
+            const fromArg = typeof parsedArgs.from === 'string' ? parsedArgs.from : undefined;
+            const toArg = typeof parsedArgs.to === 'string' ? parsedArgs.to : undefined;
+            if ((dId || daysArg || fromArg || toArg) && !autoActions.some(a => a.type === 'set_filters')) {
               autoActions.push({
                 type: 'set_filters',
                 ...(dId ? { districtId: dId } : {}),
                 ...(daysArg ? { days: daysArg } : {}),
-                label: `Filter ${dId ?? `${daysArg}d`}`,
+                ...(fromArg ? { from: fromArg } : {}),
+                ...(toArg ? { to: toArg } : {}),
+                label: `Filter ${dId ?? (fromArg ? `${fromArg}..${toArg ?? fromArg}` : `${daysArg}d`)}`,
               });
             }
             if (widgetIdArg && !autoActions.some(a => a.type === 'highlight_widget')) {
@@ -2513,6 +2922,12 @@ export async function runFinanceAgentChat(params: {
           lang,
           restaurantName,
           analysis,
+          prioritySummary,
+          fromStr,
+          toStr,
+          parsedPeriod,
+          expenses: toolState.expensesPeriod,
+          isExpenseQuery: needExpenses,
           geoData: intents.isMap || !toolState.auditTriggered ? toolState.geoData : null,
           varianceData: toolState.varianceData,
           branchData: toolState.branchData,
@@ -3077,6 +3492,38 @@ export async function runFinanceAgentChat(params: {
       });
     }
 
+    if (
+      needExpenses &&
+      (Boolean(parsedPeriod) || intents.isExpenseQuery || intents.isPriorityQuery)
+    ) {
+      const builtPriority = buildPriorityExpenseBlocks({
+        lang,
+        periodLabel,
+        fromStr,
+        toStr,
+        overview: analysis.overview,
+        expenses: toolState.expensesPeriod,
+        requestedCategories: intents.requestedCategories,
+      });
+      for (const blk of builtPriority.blocks) {
+        if (!uiBlocks.some(b => b.id === blk.id)) {
+          uiBlocks.push(blk);
+        }
+      }
+      if (!suggestedActions.some(a => a.type === 'navigate' && a.tab === 'expenses')) {
+        suggestedActions.push({
+          type: 'navigate',
+          tab: 'expenses',
+          label:
+            lang === 'uz'
+              ? 'Xarajatlar bo‘limini ochish'
+              : lang === 'ru'
+                ? 'Открыть журнал расходов'
+                : 'Open Expenses Tab',
+        });
+      }
+    }
+
     if (uiBlocks.length === 0) {
       uiBlocks.push({
         id: 'blk-overview-kpis',
@@ -3149,6 +3596,12 @@ export async function runFinanceAgentChat(params: {
       lang,
       restaurantName,
       analysis,
+      prioritySummary,
+      fromStr,
+      toStr,
+      parsedPeriod,
+      expenses: toolState.expensesPeriod,
+      isExpenseQuery: needExpenses && (Boolean(parsedPeriod) || intents.isExpenseQuery || intents.isPriorityQuery),
       geoData: intents.isMap || !toolState.auditTriggered ? geoData : null,
       varianceData,
       branchData,
@@ -3178,10 +3631,16 @@ export async function runFinanceAgentChat(params: {
   return finalResult;
 }
 
-function buildDeterministicAgentAnswer(params: {
+export function buildDeterministicAgentAnswer(params: {
   lang: Language;
   restaurantName: string;
   analysis: BusinessAnalysisResponse;
+  prioritySummary?: PriorityExpenseSummary;
+  fromStr?: string;
+  toStr?: string;
+  parsedPeriod?: ParsedDatePeriod | null;
+  expenses?: AnalysisExpenseInput[];
+  isExpenseQuery?: boolean;
   geoData: DistrictGeoAnalysisResponse | null;
   varianceData: BudgetVarianceItem[] | null;
   branchData: BranchAllocationResponse | null;
@@ -3192,6 +3651,12 @@ function buildDeterministicAgentAnswer(params: {
   const {
     restaurantName,
     analysis,
+    prioritySummary: providedPriority,
+    fromStr: providedFrom,
+    toStr: providedTo,
+    parsedPeriod,
+    expenses,
+    isExpenseQuery,
     geoData,
     varianceData,
     branchData,
@@ -3199,18 +3664,30 @@ function buildDeterministicAgentAnswer(params: {
     customDashboardTitle,
     screenSummaryText,
   } = params;
+
+  const fromStr = providedFrom ?? parsedPeriod?.from ?? analysis.overview.period.from.slice(0, 10);
+  const toStr = providedTo ?? parsedPeriod?.to ?? analysis.overview.period.to.slice(0, 10);
+  const isoRange = fromStr === toStr ? fromStr : `${fromStr} – ${toStr}`;
+  const periodRu = parsedPeriod ? `${parsedPeriod.label.ru} (${isoRange})` : `${formatDateRangeLabel(fromStr, toStr, 'ru')} (${isoRange})`;
+  const periodUz = parsedPeriod ? `${parsedPeriod.label.uz} (${isoRange})` : `${formatDateRangeLabel(fromStr, toStr, 'uz')} (${isoRange})`;
+  const periodEn = parsedPeriod ? `${parsedPeriod.label.en} (${isoRange})` : `${formatDateRangeLabel(fromStr, toStr, 'en')} (${isoRange})`;
+  const prio = providedPriority ?? computePriorityExpenseSummary({ overview: analysis.overview, expenses });
+  const kwhRu = prio.electricityKwh > 0 ? ` (${Math.round(prio.electricityKwh).toLocaleString('ru-RU')} кВт·ч)` : '';
+  const kwhUz = prio.electricityKwh > 0 ? ` (${Math.round(prio.electricityKwh).toLocaleString('ru-RU')} kVt·soat)` : '';
+  const kwhEn = prio.electricityKwh > 0 ? ` (${Math.round(prio.electricityKwh).toLocaleString('ru-RU')} kWh)` : '';
+
   if (customDashboardTitle) {
     return {
-      ru: `Создан кастомный дашборд «${customDashboardTitle}» на основе проверенных данных по «${restaurantName}» (выручка ${fmtUzs(analysis.overview.revenue)}, расходы ${fmtUzs(analysis.overview.totalExpenses)}).`,
-      uz: `«${restaurantName}» ma’lumotlari asosida «${customDashboardTitle}» maxsus paneli yaratildi (tushum ${fmtUzs(analysis.overview.revenue)}, xarajatlar ${fmtUzs(analysis.overview.totalExpenses)}).`,
-      en: `Created custom dashboard "${customDashboardTitle}" grounded in ${restaurantName} data (revenue ${fmtUzs(analysis.overview.revenue)}, expenses ${fmtUzs(analysis.overview.totalExpenses)}).`,
+      ru: `Создан кастомный дашборд «${customDashboardTitle}» на основе проверенных данных по «${restaurantName}» за ${periodRu} (выручка ${fmtUzs(analysis.overview.revenue)}, расходы ${fmtUzs(analysis.overview.totalExpenses)}).`,
+      uz: `«${restaurantName}» ma’lumotlari asosida ${periodUz} uchun «${customDashboardTitle}» maxsus paneli yaratildi (tushum ${fmtUzs(analysis.overview.revenue)}, xarajatlar ${fmtUzs(analysis.overview.totalExpenses)}).`,
+      en: `Created custom dashboard "${customDashboardTitle}" grounded in ${restaurantName} data for ${periodEn} (revenue ${fmtUzs(analysis.overview.revenue)}, expenses ${fmtUzs(analysis.overview.totalExpenses)}).`,
     };
   }
   if (screenSummaryText) {
     return {
-      ru: `На текущем экране «${restaurantName}»: ${screenSummaryText} Выручка: ${fmtUzs(analysis.overview.revenue)}, чистая прибыль: ${fmtUzs(analysis.overview.netProfit)}.`,
-      uz: `Joriy ekranda («${restaurantName}»): ${screenSummaryText} Tushum: ${fmtUzs(analysis.overview.revenue)}, sof foyda: ${fmtUzs(analysis.overview.netProfit)}.`,
-      en: `On the current screen (${restaurantName}): ${screenSummaryText} Revenue: ${fmtUzs(analysis.overview.revenue)}, net profit: ${fmtUzs(analysis.overview.netProfit)}.`,
+      ru: `На текущем экране «${restaurantName}» (${periodRu}): ${screenSummaryText} Выручка: ${fmtUzs(analysis.overview.revenue)}, чистая прибыль: ${fmtUzs(analysis.overview.netProfit)}.`,
+      uz: `Joriy ekranda («${restaurantName}», ${periodUz}): ${screenSummaryText} Tushum: ${fmtUzs(analysis.overview.revenue)}, sof foyda: ${fmtUzs(analysis.overview.netProfit)}.`,
+      en: `On the current screen (${restaurantName}, ${periodEn}): ${screenSummaryText} Revenue: ${fmtUzs(analysis.overview.revenue)}, net profit: ${fmtUzs(analysis.overview.netProfit)}.`,
     };
   }
   if (geoData && geoData.topDistrict) {
@@ -3218,9 +3695,9 @@ function buildDeterministicAgentAnswer(params: {
     const second = geoData.districts[1];
     const loss = geoData.lossMakingDeliveryDistricts;
     return {
-      ru: `Больше всего заказов приходит из района ${top.name.ru} (${top.orders} заказов, ${top.sharePct}%, выручка ${fmtUzs(top.revenue)})${second ? ` и ${second.name.ru} (${second.orders} заказов, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Убыточная доставка зафиксирована в ${loss.map(d => d.name.ru).join(', ')} из-за высокого плеча доставки.` : 'Доставка по ключевым районам рентабельна.'}`,
-      uz: `Eng ko‘p buyurtma ${top.name.uz} tumanidan kelmoqda (${top.orders} ta, ${top.sharePct}%, tushum ${fmtUzs(top.revenue)})${second ? ` va ${second.name.uz} (${second.orders} ta, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Yetkazish xarajati yuqori bo‘lgan hududlar: ${loss.map(d => d.name.uz).join(', ')}.` : 'Yetkazish marjasi ijobiy.'}`,
-      en: `Most client orders come from ${top.name.en} (${top.orders} orders, ${top.sharePct}%, ${fmtUzs(top.revenue)})${second ? ` and ${second.name.en} (${second.orders} orders, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Loss-making delivery detected in ${loss.map(d => d.name.en).join(', ')}.` : 'Delivery margins are healthy.'}`,
+      ru: `Период: ${periodRu}. Больше всего заказов приходит из района ${top.name.ru} (${top.orders} заказов, ${top.sharePct}%, выручка ${fmtUzs(top.revenue)})${second ? ` и ${second.name.ru} (${second.orders} заказов, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Убыточная доставка зафиксирована в ${loss.map(d => d.name.ru).join(', ')} из-за высокого плеча доставки.` : 'Доставка по ключевым районам рентабельна.'}`,
+      uz: `Davr: ${periodUz}. Eng ko‘p buyurtma ${top.name.uz} tumanidan kelmoqda (${top.orders} ta, ${top.sharePct}%, tushum ${fmtUzs(top.revenue)})${second ? ` va ${second.name.uz} (${second.orders} ta, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Yetkazish xarajati yuqori bo‘lgan hududlar: ${loss.map(d => d.name.uz).join(', ')}.` : 'Yetkazish marjasi ijobiy.'}`,
+      en: `Period: ${periodEn}. Most client orders come from ${top.name.en} (${top.orders} orders, ${top.sharePct}%, ${fmtUzs(top.revenue)})${second ? ` and ${second.name.en} (${second.orders} orders, ${second.sharePct}%)` : ''}. ${loss.length > 0 ? `Loss-making delivery detected in ${loss.map(d => d.name.en).join(', ')}.` : 'Delivery margins are healthy.'}`,
     };
   }
   if (branchData) {
@@ -3235,9 +3712,9 @@ function buildDeterministicAgentAnswer(params: {
     const risks = varianceData.filter(v => v.riskLevel === 'CRITICAL' || v.riskLevel === 'HIGH');
     const first = risks[0] ?? varianceData[0]!;
     return {
-      ru: `По контролю бюджета (Кейс #25): ${risks.length} категорий в зоне риска. Главный риск — ${categoryLabel(first.category, 'ru')}: факт ${fmtUzs(first.actual)} при лимите ${fmtUzs(first.limit)}, прогноз ${fmtUzs(first.forecast)}.`,
-      uz: `Byudjet nazorati (Keys #25): ${risks.length} ta toifa xavf zonasida. Asosiy xavf — ${categoryLabel(first.category, 'uz')}: fakt ${fmtUzs(first.actual)}, limit ${fmtUzs(first.limit)}, prognoz ${fmtUzs(first.forecast)}.`,
-      en: `Budget Control (Case #25): ${risks.length} categories at risk. Primary driver is ${categoryLabel(first.category, 'en')}: actual ${fmtUzs(first.actual)} vs limit ${fmtUzs(first.limit)}, forecast ${fmtUzs(first.forecast)}.`,
+      ru: `Период: ${periodRu}. По контролю бюджета (Кейс #25): ${risks.length} категорий в зоне риска. Главный риск — ${categoryLabel(first.category, 'ru')}: факт ${fmtUzs(first.actual)} при лимите ${fmtUzs(first.limit)}, прогноз ${fmtUzs(first.forecast)}.`,
+      uz: `Davr: ${periodUz}. Byudjet nazorati (Keys #25): ${risks.length} ta toifa xavf zonasida. Asosiy xavf — ${categoryLabel(first.category, 'uz')}: fakt ${fmtUzs(first.actual)}, limit ${fmtUzs(first.limit)}, prognoz ${fmtUzs(first.forecast)}.`,
+      en: `Period: ${periodEn}. Budget Control (Case #25): ${risks.length} categories at risk. Primary driver is ${categoryLabel(first.category, 'en')}: actual ${fmtUzs(first.actual)} vs limit ${fmtUzs(first.limit)}, forecast ${fmtUzs(first.forecast)}.`,
     };
   }
   if (scenarioData) {
@@ -3248,10 +3725,21 @@ function buildDeterministicAgentAnswer(params: {
       en: `Scenario (util ${a.utilityTariffPct}%, food ${a.foodInflationPct}%, rent ${a.rentChangePct}%, orders ${a.orderVolumeChangePct}%): net profit shifts from ${fmtUzs(scenarioData.baseline.netProfit)} to ${fmtUzs(scenarioData.projected.netProfit)} (${fmtUzs(scenarioData.projected.profitDelta)}).`,
     };
   }
+  if (isExpenseQuery || parsedPeriod) {
+    const itemCount = expenses?.length ?? 0;
+    const topItemNoteRu = itemCount > 0 ? ` Проведено ${itemCount} позиций.` : ' За указанный период записей расходов не найдено.';
+    const topItemNoteUz = itemCount > 0 ? ` Jami ${itemCount} ta xarajat yozuvi.` : ' Ko‘rsatilgan davr uchun xarajat yozuvlari topilmadi.';
+    const topItemNoteEn = itemCount > 0 ? ` Recorded ${itemCount} expense entries.` : ' No expense entries logged for this period.';
+    return {
+      ru: `Период: ${periodRu}. По «${restaurantName}» расходы составили ${fmtUzs(prio.totalExpenses)} (выручка ${fmtUzs(analysis.overview.revenue)}). Приоритет: налоги ${fmtUzs(prio.taxesTotal)} (${prio.taxesPctOfRevenue}% выручки), электричество и коммунальные ${fmtUzs(prio.utilitiesTotal)}${kwhRu}. Базовые расходы: ${fmtUzs(prio.baseTotal)}; дополнительные: ${fmtUzs(prio.additionalTotal)}.${topItemNoteRu}`,
+      uz: `Davr: ${periodUz}. «${restaurantName}» bo‘yicha xarajatlar ${fmtUzs(prio.totalExpenses)} (tushum ${fmtUzs(analysis.overview.revenue)}). Ustuvor: soliqlar ${fmtUzs(prio.taxesTotal)} (tushumning ${prio.taxesPctOfRevenue}%), elektr va kommunal ${fmtUzs(prio.utilitiesTotal)}${kwhUz}. Asosiy xarajatlar: ${fmtUzs(prio.baseTotal)}; qo‘shimcha: ${fmtUzs(prio.additionalTotal)}.${topItemNoteUz}`,
+      en: `Period: ${periodEn}. ${restaurantName} expenses totaled ${fmtUzs(prio.totalExpenses)} (revenue ${fmtUzs(analysis.overview.revenue)}). Priority: Taxes ${fmtUzs(prio.taxesTotal)} (${prio.taxesPctOfRevenue}% of revenue), Electricity & Utilities ${fmtUzs(prio.utilitiesTotal)}${kwhEn}. Base costs: ${fmtUzs(prio.baseTotal)}; Additional: ${fmtUzs(prio.additionalTotal)}.${topItemNoteEn}`,
+    };
+  }
   const saving = calculateDeduplicatedSavings(analysis.findings);
   return {
-    ru: `Анализ «${restaurantName}»: выручка ${fmtUzs(analysis.overview.revenue)}, расходы ${fmtUzs(analysis.overview.totalExpenses)}, чистая прибыль ${fmtUzs(analysis.overview.netProfit)}. Найдено ${analysis.findings.length} аномалий с потенциалом экономии ${fmtUzs(saving)}.`,
-    uz: `«${restaurantName}» tahlili: tushum ${fmtUzs(analysis.overview.revenue)}, xarajatlar ${fmtUzs(analysis.overview.totalExpenses)}, sof foyda ${fmtUzs(analysis.overview.netProfit)}. ${analysis.findings.length} ta muammo va ${fmtUzs(saving)} tejamkorlik aniqlandi.`,
-    en: `${restaurantName}: revenue ${fmtUzs(analysis.overview.revenue)}, expenses ${fmtUzs(analysis.overview.totalExpenses)}, net profit ${fmtUzs(analysis.overview.netProfit)}. Found ${analysis.findings.length} anomalies with ${fmtUzs(saving)} potential savings.`,
+    ru: `Период: ${periodRu}. Анализ «${restaurantName}»: выручка ${fmtUzs(analysis.overview.revenue)}, расходы ${fmtUzs(analysis.overview.totalExpenses)} (налоги ${fmtUzs(prio.taxesTotal)}, свет и ком. ${fmtUzs(prio.utilitiesTotal)}), чистая прибыль ${fmtUzs(analysis.overview.netProfit)}. Найдено ${analysis.findings.length} аномалий с потенциалом экономии ${fmtUzs(saving)}.`,
+    uz: `Davr: ${periodUz}. «${restaurantName}» tahlili: tushum ${fmtUzs(analysis.overview.revenue)}, xarajatlar ${fmtUzs(analysis.overview.totalExpenses)} (soliqlar ${fmtUzs(prio.taxesTotal)}, elektr/kom. ${fmtUzs(prio.utilitiesTotal)}), sof foyda ${fmtUzs(analysis.overview.netProfit)}. ${analysis.findings.length} ta muammo va ${fmtUzs(saving)} tejamkorlik aniqlandi.`,
+    en: `Period: ${periodEn}. ${restaurantName}: revenue ${fmtUzs(analysis.overview.revenue)}, expenses ${fmtUzs(analysis.overview.totalExpenses)} (Taxes ${fmtUzs(prio.taxesTotal)}, Utilities ${fmtUzs(prio.utilitiesTotal)}), net profit ${fmtUzs(analysis.overview.netProfit)}. Found ${analysis.findings.length} anomalies with ${fmtUzs(saving)} potential savings.`,
   };
 }

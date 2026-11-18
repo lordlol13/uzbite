@@ -94,21 +94,25 @@ export function AuditPage({
 
   return (
     <div className="grid gap-5">
-      {/* Top AI Summary & Health Gauge */}
-      <div className="card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      {/* Top AI Summary & Health Gauge (Dribbble Grid + Glow Accent) */}
+      <div className="card relative overflow-hidden p-6">
+        <div className="ai-grid-backdrop pointer-events-none absolute inset-x-0 top-0 h-44" />
+        <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
-              <span className="text-2xl font-extrabold leading-none tabular-nums">{report.healthScore}</span>
-              <span className="mt-1 text-[10px] font-bold uppercase">/ 100</span>
+            <div className="relative flex h-20 w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-[var(--border-strong)] bg-[var(--surface)] shadow-xs">
+              <span className="ai-pink-orb animate-orb-breathe absolute -right-1.5 -top-1.5 h-5 w-5 rounded-full" />
+              <span className="text-2xl font-semibold leading-none tabular-nums text-[var(--text)]">
+                {report.healthScore}
+              </span>
+              <span className="mt-1 text-[10px] font-medium uppercase text-[var(--muted)]">/ 100</span>
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--muted)]">
+                <span className="rounded-full bg-[var(--accent-soft)] px-3 py-0.5 text-[11px] font-medium text-[var(--accent)]">
                   Engine: {report.source === 'gemini' ? 'Gemini AI + Statistical Audit' : 'AI Heuristic + Statistical Audit'}
                 </span>
               </div>
-              <h1 className="m-0 mt-1.5 text-lg font-extrabold">{report.statusLabel[lang]}</h1>
+              <h1 className="m-0 mt-1.5 text-lg font-medium tracking-tight">{report.statusLabel[lang]}</h1>
               <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--muted)]">
                 {report.executiveSummary[lang]}
               </p>
@@ -120,36 +124,36 @@ export function AuditPage({
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-xl bg-[var(--surface-2)] p-3">
-            <div className="text-[11px] font-semibold text-[var(--muted)]">{t.potentialSaving}</div>
-            <div className="mt-1 text-base font-extrabold text-[var(--accent)] tabular-nums">
+        <div className="relative z-10 mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl bg-[var(--surface-2)] p-3.5">
+            <div className="text-[11px] font-medium text-[var(--muted)]">{t.potentialSaving}</div>
+            <div className="mt-1 text-base font-semibold text-[var(--accent)] tabular-nums">
               {fmtMoney(report.totalPotentialSavingUZS, lang)}
             </div>
           </div>
-          <div className="rounded-xl bg-[var(--bad-soft)] p-3">
-            <div className="text-[11px] font-semibold text-[var(--bad)]">{t.errors}</div>
-            <div className="mt-1 text-base font-extrabold text-[var(--bad)] tabular-nums">{report.errorCount}</div>
+          <div className="rounded-xl bg-[var(--bad-soft)] p-3.5">
+            <div className="text-[11px] font-medium text-[var(--bad)]">{t.errors}</div>
+            <div className="mt-1 text-base font-semibold text-[var(--bad)] tabular-nums">{report.errorCount}</div>
           </div>
-          <div className="rounded-xl bg-[var(--warn-soft)] p-3">
-            <div className="text-[11px] font-semibold text-[var(--warn)]">{t.inefficiencies}</div>
-            <div className="mt-1 text-base font-extrabold text-[var(--warn)] tabular-nums">{report.inefficiencyCount}</div>
+          <div className="rounded-xl bg-[var(--warn-soft)] p-3.5">
+            <div className="text-[11px] font-medium text-[var(--warn)]">{t.inefficiencies}</div>
+            <div className="mt-1 text-base font-semibold text-[var(--warn)] tabular-nums">{report.inefficiencyCount}</div>
           </div>
-          <div className="rounded-xl bg-[var(--accent-soft)] p-3">
-            <div className="text-[11px] font-semibold text-[var(--accent)]">{t.risks}</div>
-            <div className="mt-1 text-base font-extrabold text-[var(--accent)] tabular-nums">{report.riskCount}</div>
+          <div className="rounded-xl bg-[var(--accent-soft)] p-3.5">
+            <div className="text-[11px] font-medium text-[var(--accent)]">{t.risks}</div>
+            <div className="mt-1 text-base font-semibold text-[var(--accent)] tabular-nums">{report.riskCount}</div>
           </div>
         </div>
       </div>
 
       {/* Prioritized AI Recommendations */}
       <div className="card p-5">
-        <h2 className="m-0 mb-3 text-sm font-extrabold">{t.aiRecommendations}</h2>
+        <h2 className="m-0 mb-3 text-sm font-semibold">{t.aiRecommendations}</h2>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {report.recommendations.map(rec => (
             <div key={rec.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
               <div className="flex items-start justify-between gap-2">
-                <span className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase ${
+                <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
                   rec.priority === 'high'
                     ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
                     : rec.priority === 'medium'
@@ -158,7 +162,7 @@ export function AuditPage({
                 }`}>
                   {rec.priority}
                 </span>
-                <span className="text-xs font-extrabold text-[var(--good)] tabular-nums">
+                <span className="text-xs font-semibold text-[var(--good)] tabular-nums">
                   {t.expectedSaving}: {fmtMoney(rec.expectedSavingUZS, lang)}
                 </span>
               </div>
@@ -208,7 +212,7 @@ export function AuditPage({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase ${
+                      <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${
                         f.kind === 'ERROR'
                           ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
                           : f.kind === 'INEFFICIENCY'
@@ -225,7 +229,7 @@ export function AuditPage({
                           {CATEGORY_LABELS[f.category][lang]}
                         </span>
                       )}
-                      <span className="text-sm font-extrabold">{f.title[lang]}</span>
+                      <span className="text-sm font-semibold">{f.title[lang]}</span>
                     </div>
 
                     <p className="mt-2 text-xs leading-relaxed text-[var(--text)]">{f.detail[lang]}</p>
@@ -235,7 +239,7 @@ export function AuditPage({
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     <div className="text-right tabular-nums">
                       <div className="text-[10px] font-semibold text-[var(--muted)]">{t.impact}</div>
-                      <div className="text-base font-extrabold text-[var(--bad)]">{fmtMoney(f.amountImpact, lang)}</div>
+                      <div className="text-base font-semibold text-[var(--bad)]">{fmtMoney(f.amountImpact, lang)}</div>
                     </div>
 
                     {f.code === 'DUPLICATE_INVOICE' && (

@@ -57,9 +57,9 @@ function fillForDistrict(
   }
   const intensity = Math.max(0.15, Math.min(1, val / Math.max(1, maxPositive)));
   if (metric === 'deliveryMargin') {
-    return `rgba(31, 139, 82, ${(0.22 + intensity * 0.65).toFixed(2)})`;
+    return `rgba(54, 184, 154, ${(0.22 + intensity * 0.65).toFixed(2)})`;
   }
-  return `rgba(248, 120, 29, ${(0.18 + intensity * 0.72).toFixed(2)})`;
+  return `rgba(236, 81, 128, ${(0.16 + intensity * 0.7).toFixed(2)})`;
 }
 
 export interface TashkentDistrictMapProps {
@@ -194,7 +194,7 @@ export function TashkentDistrictMap({
             </span>
             <span className="font-bold text-[var(--accent)]">{formatMoney(activeStat.revenue, lang)}</span>
             <span
-              className={`rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
+              className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                 activeStat.growthPct >= 0
                   ? 'bg-[var(--good-soft)] text-[var(--good)]'
                   : 'bg-[var(--bad-soft)] text-[var(--bad)]'
@@ -213,9 +213,9 @@ export function TashkentDistrictMap({
       >
         <defs>
           <radialGradient id={heatGradId} cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.82" />
-            <stop offset="48%" stopColor="#f8781d" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#f8781d" stopOpacity="0" />
+            <stop offset="0%" stopColor="#ec5180" stopOpacity="0.82" />
+            <stop offset="48%" stopColor="#8172ff" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#8172ff" stopOpacity="0" />
           </radialGradient>
         </defs>
 
@@ -324,7 +324,7 @@ export function TashkentDistrictMap({
                     width={9}
                     height={9}
                     rx={2.5}
-                    fill={ratio > 0.65 ? '#ef4444' : '#f8781d'}
+                    fill={ratio > 0.65 ? '#ec5180' : '#8172ff'}
                     fillOpacity={0.35 + ratio * 0.45}
                     stroke="#ffffff"
                     strokeOpacity={0.55}

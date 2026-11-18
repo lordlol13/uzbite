@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { Language } from '@uzbite/shared';
+import { BrandLogoBadge } from '../components/DesignWidgets';
 import { businessLogin, checkBusinessBackendHealth, type StoredAuth } from '../lib/api';
 import { COPY } from '../lib/i18n';
 
@@ -62,26 +63,29 @@ export function LoginPage({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-6">
-      <div className="card w-full max-w-md p-8 shadow-sm">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--bg)] p-6">
+      <div className="ai-grid-backdrop pointer-events-none absolute inset-x-0 top-0 h-72" />
+      <div className="card relative z-10 w-full max-w-md p-8">
         <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f8781d] text-lg font-extrabold text-white">
-              U
-            </div>
+          <div className="flex items-center gap-3">
+            <BrandLogoBadge size={40} />
             <div>
-              <div className="text-lg font-extrabold tracking-tight">{t.appName}</div>
-              <div className="text-[11px] font-semibold text-[var(--muted)]">Desktop Analytics · Case #26</div>
+              <div className="text-[16px] font-semibold tracking-tight text-[var(--text)]">{t.appName}</div>
+              <div className="text-[11px] font-medium text-[var(--muted)]">Desktop Analytics · Case #26</div>
             </div>
           </div>
 
-          <div className="flex overflow-hidden rounded-lg border border-[var(--border)] text-xs font-semibold">
+          <div className="flex overflow-hidden rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] p-0.5 text-[11px] font-medium">
             {(['ru', 'uz', 'en'] as const).map(code => (
               <button
                 key={code}
                 type="button"
                 onClick={() => onLangChange(code)}
-                className={`px-2.5 py-1.5 uppercase ${lang === code ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--muted)]'}`}
+                className={`rounded-full px-2.5 py-1 uppercase transition ${
+                  lang === code
+                    ? 'bg-[var(--surface)] font-semibold text-[var(--text)] shadow-xs'
+                    : 'text-[var(--muted)]'
+                }`}
               >
                 {code}
               </button>
@@ -89,7 +93,7 @@ export function LoginPage({
           </div>
         </div>
 
-        <h1 className="m-0 text-xl font-extrabold tracking-tight">{t.loginTitle}</h1>
+        <h1 className="m-0 text-[22px] font-medium tracking-[-0.02em] text-[var(--text)]">{t.loginTitle}</h1>
         <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{t.loginDesc}</p>
 
         {serverOnline === false && (

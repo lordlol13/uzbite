@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type {
   CategoryBreakdownItem,
   DishAnalyticsItem,
@@ -16,12 +16,13 @@ export function RevenueExpenseChart({
   lang: Language;
 }) {
   const [hovered, setHovered] = useState<number | null>(null);
+  const uid = useId().replace(/:/g, '');
   if (data.length === 0) {
     return <p className="py-12 text-center text-sm text-[var(--muted)]">{COPY[lang].noData}</p>;
   }
 
   const width = 760;
-  const height = 260;
+  const height = 264;
   const padL = 56;
   const padR = 16;
   const padT = 18;
@@ -29,13 +30,14 @@ export function RevenueExpenseChart({
   const plotW = width - padL - padR;
   const plotH = height - padT - padB;
 
-  const maxVal = Math.max(
-    100_000,
-    ...data.flatMap(d => [d.revenue, d.expenses]),
-  );
+  const maxVal =
+    Math.max(
+      100_000,
+      ...data.flatMap(d => [d.revenue, d.expenses]),
+    ) * 1.12;
 
   const step = plotW / data.length;
-  const barW = Math.max(4, Math.min(18, step * 0.34));
+  const barW = Math.max(5, Math.min(20, step * 0.36));
   const yFor = (val: number) => padT + plotH - (val / maxVal) * plotH;
 
   const profitPoints = data
@@ -49,29 +51,37 @@ export function RevenueExpenseChart({
   const hoveredItem = hovered !== null ? data[hovered] : null;
   const labelStride = Math.max(1, Math.ceil(data.length / 8));
 
+  const revGradId = `rev-grad-${uid}`;
+  const expGradId = `exp-grad-${uid}`;
+  const stripePatId = `stripe-cap-${uid}`;
+
   return (
     <div className="relative w-full">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-4">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-[#f8781d]" />
+        <div className="flex flex-wrap items-center gap-4 text-[var(--muted)]">
+          <span className="inline-flex items-center gap-1.5 font-medium text-[var(--text)]">
+            <span className="h-2.5 w-2.5 rounded-[4px] bg-[#ec5180]" />
             {COPY[lang].revenue}
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm bg-[#64748b]" />
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span className="h-2.5 w-2.5 rounded-[4px] bg-[#e2d4ec] border border-[#c4b5fd]" />
             {COPY[lang].totalExpenses}
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-0.5 w-4 bg-[#1f8b52]" />
+          <span className="inline-flex items-center gap-1.5 font-medium">
+            <span className="h-0.5 w-4 rounded-full bg-[#36b89a]" />
             {COPY[lang].netProfit}
           </span>
         </div>
         {hoveredItem && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs tabular-nums">
-            <strong className="mr-2">{hoveredItem.bucket}</strong>
-            <span className="mr-2 text-[#f8781d]">{COPY[lang].revenue}: {fmtMoney(hoveredItem.revenue, lang)}</span>
-            <span className="mr-2 text-[var(--muted)]">{COPY[lang].totalExpenses}: {fmtMoney(hoveredItem.expenses, lang)}</span>
-            <span className={hoveredItem.profit >= 0 ? 'text-[var(--good)]' : 'text-[var(--bad)]'}>
+          <div className="rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-[11.5px] tabular-nums shadow-xs">
+            <strong className="mr-2 font-semibold text-[var(--text)]">{hoveredItem.bucket}</strong>
+            <span className="mr-2 font-medium text-[#ec5180]">
+              {COPY[lang].revenue}: {fmtMoney(hoveredItem.revenue, lang)}
+            </span>
+            <span className="mr-2 text-[var(--muted)]">
+              {COPY[lang].totalExpenses}: {fmtMoney(hoveredItem.expenses, lang)}
+            </span>
+            <span className={hoveredItem.profit >= 0 ? 'font-medium text-[var(--good)]' : 'font-medium text-[var(--bad)]'}>
               {COPY[lang].netProfit}: {fmtMoney(hoveredItem.profit, lang)}
             </span>
           </div>
@@ -79,13 +89,44 @@ export function RevenueExpenseChart({
       </div>
 
       <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full overflow-visible">
+        <defs>
+          <linearGradient id={revGradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ec5180" stopOpacity="0.96" />
+            <stop offset="55%" stopColor="#f59cb8" stopOpacity="0.62" />
+            <stop offset="100%" stopColor="#f8d3de" stopOpacity="0.06" />
+          </linearGradient>
+          <linearGradient id={expGradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#8172ff" stopOpacity="0.52" />
+            <stop offset="65%" stopColor="#c7bffc" stopOpacity="0.24" />
+            <stop offset="100%" stopColor="#ede9fe" stopOpacity="0.04" />
+          </linearGradient>
+          <pattern
+            id={stripePatId}
+            width="6"
+            height="6"
+            patternUnits="userSpaceOnUse"
+            patternTransform="rotate(45)"
+          >
+            <rect width="6" height="6" fill="rgba(236, 81, 128, 0.08)" />
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#ffffff" strokeOpacity="0.55" strokeWidth="2.5" />
+          </pattern>
+        </defs>
+
         {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
           const y = padT + plotH * (1 - ratio);
           const v = maxVal * ratio;
           return (
             <g key={ratio}>
-              <line x1={padL} y1={y} x2={width - padR} y2={y} stroke="var(--border)" strokeDasharray="3 3" />
-              <text x={padL - 8} y={y + 4} textAnchor="end" fontSize="10" fill="var(--muted)">
+              <line
+                x1={padL}
+                y1={y}
+                x2={width - padR}
+                y2={y}
+                stroke="var(--border-strong)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.75}
+              />
+              <text x={padL - 8} y={y + 4} textAnchor="end" fontSize="10" fill="var(--muted-soft)">
                 {fmtCompactMoney(v, lang)}
               </text>
             </g>
@@ -96,6 +137,10 @@ export function RevenueExpenseChart({
           const cx = padL + i * step + step / 2;
           const revH = (d.revenue / maxVal) * plotH;
           const expH = (d.expenses / maxVal) * plotH;
+          const delay = `${Math.min(i * 18, 360)}ms`;
+          const capY = Math.max(padT, yFor(d.revenue) - 10);
+          const capH = Math.min(10, Math.max(0, yFor(d.revenue) - padT));
+
           return (
             <g
               key={d.bucket}
@@ -103,26 +148,50 @@ export function RevenueExpenseChart({
               onMouseLeave={() => setHovered(null)}
               className="cursor-pointer"
             >
+              {/* Diagonal striped cap above primary bar (Dribbble signature cap) */}
+              {revH > 6 && capH > 2 && (
+                <rect
+                  x={cx - barW - 1}
+                  y={capY}
+                  width={barW}
+                  height={capH + 4}
+                  rx={4}
+                  fill={`url(#${stripePatId})`}
+                  opacity={hovered === i ? 0.95 : 0.65}
+                />
+              )}
               <rect
                 x={cx - barW - 1}
                 y={yFor(d.revenue)}
                 width={barW}
                 height={Math.max(0, revH)}
-                rx={3}
-                fill="#f8781d"
-                opacity={hovered === i ? 1 : 0.85}
+                rx={5}
+                fill={`url(#${revGradId})`}
+                className="animate-bar-grow"
+                style={{
+                  transformBox: 'fill-box',
+                  transformOrigin: 'bottom center',
+                  animationDelay: delay,
+                  opacity: hovered === i ? 1 : 0.92,
+                }}
               />
               <rect
                 x={cx + 1}
                 y={yFor(d.expenses)}
                 width={barW}
                 height={Math.max(0, expH)}
-                rx={3}
-                fill="#64748b"
-                opacity={hovered === i ? 1 : 0.75}
+                rx={5}
+                fill={`url(#${expGradId})`}
+                className="animate-bar-grow"
+                style={{
+                  transformBox: 'fill-box',
+                  transformOrigin: 'bottom center',
+                  animationDelay: delay,
+                  opacity: hovered === i ? 1 : 0.88,
+                }}
               />
               {i % labelStride === 0 && (
-                <text x={cx} y={height - 10} textAnchor="middle" fontSize="10" fill="var(--muted)">
+                <text x={cx} y={height - 10} textAnchor="middle" fontSize="10" fill="var(--muted-soft)">
                   {d.bucket.slice(5)}
                 </text>
               )}
@@ -133,10 +202,22 @@ export function RevenueExpenseChart({
         {data.length > 1 && (
           <polyline
             fill="none"
-            stroke="#1f8b52"
+            stroke="#36b89a"
             strokeWidth="2.2"
+            strokeLinecap="round"
             strokeLinejoin="round"
             points={profitPoints}
+          />
+        )}
+
+        {hovered !== null && data[hovered] && (
+          <circle
+            cx={padL + hovered * step + step / 2}
+            cy={yFor(Math.max(0, data[hovered].profit))}
+            r={4.5}
+            fill="#36b89a"
+            stroke="var(--surface)"
+            strokeWidth="2"
           />
         )}
       </svg>
@@ -170,7 +251,7 @@ export function CategoryDonutChart({
         <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
           {nonZero.map(item => {
             const len = (item.amount / total) * circ;
-            const dashArray = `${Math.max(0, len - 2)} ${circ}`;
+            const dashArray = `${Math.max(0, len - 3)} ${circ}`;
             const dashOffset = -offset;
             offset += len;
             return (
@@ -181,7 +262,7 @@ export function CategoryDonutChart({
                 r={r}
                 fill="none"
                 stroke={CATEGORY_COLORS[item.category]}
-                strokeWidth="24"
+                strokeWidth="20"
                 strokeDasharray={dashArray}
                 strokeDashoffset={dashOffset}
               />
@@ -189,8 +270,10 @@ export function CategoryDonutChart({
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-[11px] font-semibold text-[var(--muted)]">{COPY[lang].totalExpenses}</span>
-          <strong className="text-sm font-extrabold tabular-nums">{fmtCompactMoney(total, lang)}</strong>
+          <span className="text-[11px] font-medium text-[var(--muted)]">{COPY[lang].totalExpenses}</span>
+          <strong className="text-sm font-semibold tracking-tight tabular-nums text-[var(--text)]">
+            {fmtCompactMoney(total, lang)}
+          </strong>
         </div>
       </div>
 
@@ -202,10 +285,12 @@ export function CategoryDonutChart({
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{ backgroundColor: CATEGORY_COLORS[item.category] }}
               />
-              <span className="truncate font-medium">{CATEGORY_LABELS[item.category][lang]}</span>
+              <span className="truncate font-medium text-[var(--text)]">
+                {CATEGORY_LABELS[item.category][lang]}
+              </span>
             </div>
             <div className="shrink-0 tabular-nums text-right">
-              <span className="font-bold">{fmtCompactMoney(item.amount, lang)}</span>
+              <span className="font-semibold text-[var(--text)]">{fmtCompactMoney(item.amount, lang)}</span>
               <span className="ml-1.5 text-[var(--muted)]">({item.sharePct}%)</span>
             </div>
           </div>
@@ -232,7 +317,7 @@ export function HourlyHeatmap({
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[600px]">
-        <div className="mb-1 grid grid-cols-[44px_repeat(15,minmax(0,1fr))] gap-1 text-center text-[10px] text-[var(--muted)]">
+        <div className="mb-1.5 grid grid-cols-[44px_repeat(15,minmax(0,1fr))] gap-1 text-center text-[10px] text-[var(--muted)]">
           <div />
           {visibleHours.map(h => (
             <div key={h}>{String(h).padStart(2, '0')}</div>
@@ -241,7 +326,7 @@ export function HourlyHeatmap({
         <div className="grid gap-1">
           {weekdays.map((label, w) => (
             <div key={label} className="grid grid-cols-[44px_repeat(15,minmax(0,1fr))] items-center gap-1">
-              <span className="text-xs font-semibold text-[var(--muted)]">{label}</span>
+              <span className="text-xs font-medium text-[var(--muted)]">{label}</span>
               {visibleHours.map(h => {
                 const cell = map.get(`${w}:${h}`);
                 const count = cell?.orders ?? 0;
@@ -249,15 +334,15 @@ export function HourlyHeatmap({
                 const bg =
                   count === 0
                     ? 'var(--surface-2)'
-                    : `rgba(248, 120, 29, ${(0.2 + intensity * 0.8).toFixed(2)})`;
+                    : `rgba(236, 81, 128, ${(0.18 + intensity * 0.82).toFixed(2)})`;
                 return (
                   <div
                     key={h}
                     title={`${label} ${h}:00 — ${count} (${fmtMoney(cell?.revenue ?? 0, lang)})`}
-                    className="flex h-7 items-center justify-center rounded-md border border-[var(--border)] text-[10px] font-bold tabular-nums"
+                    className="flex h-7 items-center justify-center rounded-lg border border-[var(--border)] text-[10px] font-medium tabular-nums transition-colors"
                     style={{
                       backgroundColor: bg,
-                      color: intensity > 0.55 ? '#ffffff' : 'var(--text)',
+                      color: intensity > 0.52 ? '#ffffff' : 'var(--text)',
                     }}
                   >
                     {count > 0 ? count : ''}
@@ -298,21 +383,35 @@ export function MenuQuadrantChart({
   const yOf = (m: number) => pad + plotH - ((m - minMargin) / marginSpan) * plotH;
 
   const colors: Record<DishAnalyticsItem['quadrant'], string> = {
-    STAR: '#1f8b52',
-    PLOWHORSE: '#f8781d',
-    PUZZLE: '#3b82f6',
-    DOG: '#d13832',
+    STAR: '#36b89a',
+    PLOWHORSE: '#ec5180',
+    PUZZLE: '#8172ff',
+    DOG: '#d54c4f',
   };
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-56 w-full">
-      <rect x={pad} y={pad} width={plotW} height={plotH} fill="var(--surface-2)" rx={8} />
-      <line x1={xOf(avgQty)} y1={pad} x2={xOf(avgQty)} y2={pad + plotH} stroke="var(--border)" strokeDasharray="4 4" />
-      <line x1={pad} y1={yOf(avgMargin)} x2={pad + plotW} y2={yOf(avgMargin)} stroke="var(--border)" strokeDasharray="4 4" />
-      <text x={pad + 8} y={pad + 14} fontSize="10" fill="var(--muted)">PUZZLE</text>
-      <text x={pad + plotW - 42} y={pad + 14} fontSize="10" fill="var(--good)">STAR</text>
-      <text x={pad + 8} y={pad + plotH - 6} fontSize="10" fill="var(--bad)">DOG</text>
-      <text x={pad + plotW - 70} y={pad + plotH - 6} fontSize="10" fill="var(--accent)">PLOWHORSE</text>
+      <rect x={pad} y={pad} width={plotW} height={plotH} fill="var(--surface-2)" rx={10} />
+      <line
+        x1={xOf(avgQty)}
+        y1={pad}
+        x2={xOf(avgQty)}
+        y2={pad + plotH}
+        stroke="var(--border-strong)"
+        strokeDasharray="4 4"
+      />
+      <line
+        x1={pad}
+        y1={yOf(avgMargin)}
+        x2={pad + plotW}
+        y2={yOf(avgMargin)}
+        stroke="var(--border-strong)"
+        strokeDasharray="4 4"
+      />
+      <text x={pad + 8} y={pad + 14} fontSize="10" fontWeight="500" fill="var(--accent-2)">PUZZLE</text>
+      <text x={pad + plotW - 42} y={pad + 14} fontSize="10" fontWeight="500" fill="var(--mint)">STAR</text>
+      <text x={pad + 8} y={pad + plotH - 6} fontSize="10" fontWeight="500" fill="var(--bad)">DOG</text>
+      <text x={pad + plotW - 70} y={pad + plotH - 6} fontSize="10" fontWeight="500" fill="var(--accent)">PLOWHORSE</text>
 
       {dishes.map(d => {
         const cx = xOf(d.quantitySold);
@@ -322,7 +421,7 @@ export function MenuQuadrantChart({
             <circle cx={cx} cy={cy} r={7} fill={colors[d.quadrant]} opacity={0.9}>
               <title>{`${d.name}: ${d.quantitySold} шт, ${fmtMoney(d.unitMargin, lang)}`}</title>
             </circle>
-            <text x={cx + 9} y={cy + 3} fontSize="10" fontWeight="600" fill="var(--text)">
+            <text x={cx + 9} y={cy + 3} fontSize="10" fontWeight="500" fill="var(--text)">
               {d.name.slice(0, 16)}
             </text>
           </g>

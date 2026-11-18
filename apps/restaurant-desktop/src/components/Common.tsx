@@ -24,11 +24,11 @@ export function Modal({
         }`}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-          <h2 className="m-0 text-base font-extrabold">{title}</h2>
+          <h2 className="m-0 text-base font-medium tracking-tight">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--text)]"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--text)]"
             aria-label="Закрыть"
           >
             <Icon name="close" size={16} />

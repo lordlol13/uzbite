@@ -96,7 +96,7 @@ export function PostsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Видеопубликации ресторана</h1>
+          <h1 className="m-0 text-xl font-semibold">Видеопубликации ресторана</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Опубликованные ролики попадают в общую ленту покупателей UzBite со ссылкой на реальное блюдо меню.
           </p>
@@ -156,7 +156,7 @@ export function PostsPage() {
                     </div>
                   </div>
                   <div className="p-4 text-xs">
-                    {post.title && <div className="font-extrabold">{post.title}</div>}
+                    {post.title && <div className="font-semibold">{post.title}</div>}
                     <p className="mt-1 mb-0 line-clamp-2 text-[var(--muted)]">{post.caption}</p>
                     {post.dish && (
                       <div className="mt-2 font-bold text-[var(--accent)]">Блюдо: {post.dish.name}</div>

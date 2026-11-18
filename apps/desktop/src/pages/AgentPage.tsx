@@ -15,34 +15,34 @@ import {
 
 const QUICK_PROMPTS: Record<Language, Array<{ tag: string; text: string }>> = {
   uz: [
+    { tag: 'Sana · 15-noy', text: '15-noyabr xarajatlari' },
+    { tag: 'Ustuvor', text: 'O‘tgan haftadagi soliq va elektr xarajatlari' },
+    { tag: 'Guruhlar', text: 'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar' },
     { tag: '#26 Audit', text: 'Xatolarni, dublikatlarni va kommunal xarajatlarni qisqartirish yo‘llarini ko‘rsat' },
     { tag: '#25 Byudjet', text: 'Qaysi moddalar byudjet limitidan oshib ketishi mumkin va sababi nima?' },
     { tag: '#24 Filiallar', text: '120 mln so‘m byudjetni filiallar o‘rtasida optimal taqsimlab ber' },
     { tag: 'Xarita', text: 'Eng ko‘p mijozlar qaysi tumanlardan kelmoqda va qayerda yetkazish zararli?' },
     { tag: 'Ssenariy', text: 'Elektr tarifi +20% va mahsulot narxi +10% oshsa foyda qanday o‘zgaradi?' },
-    { tag: 'Dashboard', text: 'Kommunal va ijara xarajatlari bo‘yicha maxsus dashboard yarat' },
-    { tag: 'Ekran', text: 'Hozirgi ekranda nimalar ko‘rinib turibdi va asosiy xulosa nima?' },
-    { tag: 'Boshqaruv', text: 'Byudjetlar bo‘limini och va xavfli moddalarni ko‘rsat' },
   ],
   ru: [
+    { tag: 'Дата · 15 ноя', text: 'Расходы за 15 ноября' },
+    { tag: 'Приоритет', text: 'Налоги и электричество за прошлую неделю' },
+    { tag: 'Группы', text: 'Базовые и доп. расходы за прошлую неделю' },
     { tag: '#26 Аудит', text: 'Найди ошибки учёта, дубликаты и способы сократить расходы на свет и связь' },
     { tag: '#25 Бюджет', text: 'Какие статьи превысят бюджет до конца месяца и почему?' },
     { tag: '#24 Филиалы', text: 'Распредели 120 млн UZS оптимально между всеми филиалами по ROI и спросу' },
     { tag: 'Карта', text: 'Из каких районов Ташкента приходит больше всего заказов и где доставка убыточна?' },
     { tag: 'Сценарий', text: 'Смоделируй рост тарифов на свет +20% и цен на сырьё +10%' },
-    { tag: 'Дашборд', text: 'Создай кастомный дашборд по коммунальным расходам и аренде' },
-    { tag: 'Экран', text: 'Что сейчас на моём экране и какие главные выводы?' },
-    { tag: 'Управление', text: 'Открой вкладку бюджетов и подсвети риски' },
   ],
   en: [
+    { tag: 'Date · Nov 15', text: 'Expenses on November 15' },
+    { tag: 'Priority', text: 'Taxes & electricity for last week' },
+    { tag: 'Groups', text: 'Base vs additional expenses for last week' },
     { tag: '#26 Audit', text: 'Find accounting errors, duplicates, and ways to cut utility & admin costs' },
     { tag: '#25 Budget', text: 'Which budget categories will breach their limits this month and why?' },
     { tag: '#24 Branches', text: 'Optimally allocate 120M UZS across all branches by ROI and demand' },
     { tag: 'Map', text: 'Which Tashkent districts generate the most orders and where is delivery unprofitable?' },
     { tag: 'What-If', text: 'Simulate +20% utility tariff hike and +10% ingredient inflation' },
-    { tag: 'Dashboard', text: 'Create a custom dashboard for utilities and rent costs' },
-    { tag: 'Screen', text: 'What is on my current screen and what should I focus on?' },
-    { tag: 'Control', text: 'Open the budgets tab and highlight at-risk categories' },
   ],
 };
 
@@ -127,7 +127,7 @@ export function AgentPage({
       <div className="card flex flex-col justify-between gap-4 p-5 lg:flex-row lg:items-center">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[11px] font-extrabold text-[var(--accent)]">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--accent)]">
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
               {activeModelInfo.displayName} ({activeModelInfo.id})
             </span>
@@ -141,7 +141,7 @@ export function AgentPage({
             )}
             <span className="text-[11px] font-semibold text-[var(--muted)]">{restaurantName}</span>
           </div>
-          <h1 className="m-0 mt-1.5 text-base font-extrabold">
+          <h1 className="m-0 mt-1.5 text-base font-semibold">
             {lang === 'uz'
               ? 'AI Moliyaviy Nazoratchi va Tahlilchi (#24, #25, #26 + Xarita)'
               : lang === 'ru'
@@ -167,7 +167,7 @@ export function AgentPage({
               value={selectedModel}
               disabled={busy}
               onChange={e => onSelectModel(e.target.value)}
-              className="bg-transparent text-xs font-extrabold text-[var(--text)] outline-none"
+              className="bg-transparent text-xs font-semibold text-[var(--text)] outline-none"
             >
               {models.map(m => (
                 <option key={m.id} value={m.id}>
@@ -200,7 +200,7 @@ export function AgentPage({
           {mcpQuery.data.map(tool => (
             <div key={tool.name} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
               <div className="flex items-center justify-between gap-2">
-                <code className="text-xs font-extrabold text-[var(--accent)]">{tool.name}</code>
+                <code className="text-xs font-semibold text-[var(--accent)]">{tool.name}</code>
                 <span className="rounded-md bg-[var(--surface)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--muted)]">
                   {tool.category}
                 </span>
@@ -221,7 +221,7 @@ export function AgentPage({
             onClick={() => void onAskQuestion(p.text)}
             className="flex items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-left text-xs font-semibold transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]/50 disabled:opacity-50"
           >
-            <span className="mt-0.5 shrink-0 rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+            <span className="mt-0.5 shrink-0 rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
               {p.tag}
             </span>
             <span className="line-clamp-2 leading-snug">{p.text}</span>
@@ -270,7 +270,7 @@ export function AgentPage({
             <div key={turn.id} className="card grid gap-3 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-[10px] font-extrabold text-[var(--text)]">
+                  <span className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--text)]">
                     {resp?.source === 'coarena' ? `Coarena · ${resp.model}` : 'Deterministic Fallback'}
                   </span>
                   {turn.latencyMs !== undefined && (

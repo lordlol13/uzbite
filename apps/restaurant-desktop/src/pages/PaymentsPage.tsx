@@ -57,7 +57,7 @@ export function PaymentsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Оплата заказов и чеки</h1>
+          <h1 className="m-0 text-xl font-semibold">Оплата заказов и чеки</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Ручная проверка переводов на карту и подтверждение получения наличных
           </p>
@@ -98,7 +98,7 @@ export function PaymentsPage() {
                 const st = paymentStatusInfo(p.status as PaymentStatus);
                 return (
                   <tr key={p.id} className="border-b border-[var(--border)]">
-                    <td className="px-4 py-3 font-extrabold">
+                    <td className="px-4 py-3 font-semibold">
                       <button
                         type="button"
                         onClick={() => navigate(`/orders/${p.orderId}`)}
@@ -108,7 +108,7 @@ export function PaymentsPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3 font-semibold">{p.order.recipientName}</td>
-                    <td className="px-4 py-3 font-extrabold tabular-nums">
+                    <td className="px-4 py-3 font-semibold tabular-nums">
                       {formatMoney(p.order.total, config.language)}
                     </td>
                     <td className="px-4 py-3">{p.method === 'CARD' ? 'Карта (перевод)' : 'Наличные'}</td>

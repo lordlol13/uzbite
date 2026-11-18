@@ -4,13 +4,44 @@ import type {
   AgentUiBlock,
   AiOptimizationReport,
   BusinessKpiOverview,
+  DistrictGeoAnalysisResponse,
   Finding,
   Language,
   TimeseriesPoint,
 } from '@uzbite/shared';
 import { AgentBlocks } from '../components/AgentBlocks';
-import { CategoryDonutChart, RevenueExpenseChart } from '../components/Charts';
-import { COPY, fmtMoney, type NavTab } from '../lib/i18n';
+import { RevenueExpenseChart } from '../components/Charts';
+import {
+  AiInsightOrbCard,
+  AlertFeedRow,
+  GradientSliderRow,
+  IconActivity,
+  IconAlertTriangle,
+  IconBag,
+  IconBox,
+  IconChevronRight,
+  IconCoins,
+  IconReceipt,
+  IconSparkles,
+  IconTrendingDown,
+  IconWallet,
+  IconWrench,
+  LiveSunburstIcon,
+  TickStatCard,
+} from '../components/DesignWidgets';
+import { TashkentDistrictMap } from '../components/TashkentDistrictMap';
+import {
+  ADDITIONAL_EXPENSE_CATEGORIES,
+  BASE_EXPENSE_CATEGORIES,
+  CATEGORY_LABELS,
+  COPY,
+  EXPENSE_GROUP_META,
+  PRIORITY_EXPENSE_CATEGORIES,
+  fmtCompactMoney,
+  fmtMoney,
+  type ExpenseGroupId,
+  type NavTab,
+} from '../lib/i18n';
 
 export interface CustomDashboard {
   id: string;
@@ -130,17 +161,6 @@ export function clearAllCustomDashboards(restaurantId: string): CustomDashboard[
   return [];
 }
 
-function DeltaBadge({ pct, label }: { pct: number; label: string }) {
-  const positive = pct >= 0;
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums ${
-      positive ? 'bg-[var(--good-soft)] text-[var(--good)]' : 'bg-[var(--bad-soft)] text-[var(--bad)]'
-    }`}>
-      {positive ? '+' : ''}{pct.toFixed(1)}% · {label}
-    </span>
-  );
-}
-
 const DASHBOARD_AI_PRESETS: Record<Language, Array<{ label: string; prompt: string }>> = {
   ru: [
     { label: '+ Дашборд: Карта Ташкента', prompt: 'Создай дашборд по районам Ташкента и доставке' },
@@ -165,13 +185,17 @@ const DASHBOARD_AI_PRESETS: Record<Language, Array<{ label: string; prompt: stri
   ],
 };
 
+const SLIDER_TONES: Array<'orange' | 'mint' | 'violet' | 'pink' | 'blue'> = ['pink', 'orange', 'mint', 'violet', 'blue'];
+
 export function DashboardPage({
   lang,
   overview,
   timeseries,
   findings,
   report,
+  districtGeo,
   onNavigate,
+  onOpenExpensesGroup,
   pinnedBlocks = [],
   onUnpinBlock,
   onExecuteAction,
@@ -192,7 +216,9 @@ export function DashboardPage({
   timeseries: TimeseriesPoint[];
   findings: Finding[];
   report: AiOptimizationReport;
+  districtGeo?: DistrictGeoAnalysisResponse;
   onNavigate: (tab: NavTab) => void;
+  onOpenExpensesGroup?: (group: ExpenseGroupId) => void;
   pinnedBlocks?: AgentUiBlock[];
   onUnpinBlock?: (blockId: string) => void;
   onExecuteAction?: (action: AgentClientAction) => void;
@@ -212,13 +238,12 @@ export function DashboardPage({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState('');
   const [aiInput, setAiInput] = useState('');
+  const [showAiBuilder, setShowAiBuilder] = useState(customDashboards.length > 0);
+  const [expenseGroup, setExpenseGroup] = useState<ExpenseGroupId>('ALL');
 
   const activeCustom = activeCustomDashboardId
     ? customDashboards.find(d => d.id === activeCustomDashboardId) ?? null
     : null;
-
-  const healthColor =
-    report.healthScore >= 80 ? 'var(--good)' : report.healthScore >= 55 ? 'var(--warn)' : 'var(--bad)';
 
   function startRename(d: CustomDashboard) {
     setEditingId(d.id);
@@ -245,20 +270,69 @@ export function DashboardPage({
   }
 
   const presets = DASHBOARD_AI_PRESETS[lang];
+  const breakdownWithAmount = overview.categoryBreakdown.filter(c => c.amount > 0);
+  const taxesBreakdown = overview.categoryBreakdown.find(c => c.category === 'TAXES');
+  const utilitiesBreakdown = overview.categoryBreakdown.find(c => c.category === 'UTILITIES');
+  const commBreakdown = overview.categoryBreakdown.find(c => c.category === 'COMMUNICATION');
+
+  const taxesAmount = taxesBreakdown?.amount ?? 0;
+  const taxesRevenuePct = overview.revenue > 0 ? (taxesAmount / overview.revenue) * 100 : 0;
+  const taxesExpensePct = overview.totalExpenses > 0 ? (taxesAmount / overview.totalExpenses) * 100 : 0;
+
+  const utilitiesAmount = utilitiesBreakdown?.amount ?? 0;
+  const commAmount = commBreakdown?.amount ?? 0;
+  const electricityUtilitiesAmount = utilitiesAmount + commAmount;
+  const electricityExpensePct =
+    overview.totalExpenses > 0 ? (electricityUtilitiesAmount / overview.totalExpenses) * 100 : 0;
+  const electricityRevenuePct =
+    overview.revenue > 0 ? (electricityUtilitiesAmount / overview.revenue) * 100 : 0;
+
+  const priorityTotal = breakdownWithAmount
+    .filter(c => PRIORITY_EXPENSE_CATEGORIES.includes(c.category))
+    .reduce((s, c) => s + c.amount, 0);
+  const baseTotal = breakdownWithAmount
+    .filter(c => BASE_EXPENSE_CATEGORIES.includes(c.category))
+    .reduce((s, c) => s + c.amount, 0);
+  const additionalTotal = breakdownWithAmount
+    .filter(c => ADDITIONAL_EXPENSE_CATEGORIES.includes(c.category))
+    .reduce((s, c) => s + c.amount, 0);
+  const totalGroupBase = Math.max(1, priorityTotal + baseTotal + additionalTotal);
+
+  const visibleCategories =
+    expenseGroup === 'ALL'
+      ? [
+          ...breakdownWithAmount.filter(c => PRIORITY_EXPENSE_CATEGORIES.includes(c.category)),
+          ...breakdownWithAmount.filter(c => !PRIORITY_EXPENSE_CATEGORIES.includes(c.category)),
+        ].slice(0, 5)
+      : breakdownWithAmount.filter(c => EXPENSE_GROUP_META[expenseGroup].categories.includes(c.category));
+
+  const openExpensesWithGroup = (group: ExpenseGroupId) => {
+    if (onOpenExpensesGroup) {
+      onOpenExpensesGroup(group);
+    } else {
+      onNavigate('expenses');
+    }
+  };
+
+  const topDistrict =
+    districtGeo?.topDistrict ??
+    (districtGeo?.districts ? [...districtGeo.districts].sort((a, b) => b.orders - a.orders)[0] : undefined);
+  const liveOrdersCount =
+    districtGeo?.districts.reduce((sum, d) => sum + d.orders, 0) || overview.deliveredOrders;
 
   return (
     <div className="grid gap-5">
-      {/* AI Dashboard Controller & Switcher Bar */}
+      {/* Sleek Dribbble-Style AI Dashboard Switcher & Prompt Bar */}
       <div className="card grid gap-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {onSelectCustomDashboard && (
               <button
                 type="button"
                 onClick={() => onSelectCustomDashboard(null)}
-                className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
                   !activeCustom
-                    ? 'bg-[var(--accent)] text-white'
+                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
                     : 'bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--text)]'
                 }`}
               >
@@ -272,15 +346,15 @@ export function DashboardPage({
                   key={d.id}
                   type="button"
                   onClick={() => onSelectCustomDashboard?.(d.id)}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
                     selected
                       ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:border-[var(--accent)]'
+                      : 'border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text)] hover:border-[var(--accent)]'
                   }`}
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                   <span className="max-w-[180px] truncate">{d.title}</span>
-                  <span className="rounded-md bg-[var(--surface)] px-1.5 py-0.2 text-[10px] text-[var(--muted)]">
+                  <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.2 text-[10px] text-[var(--muted)]">
                     {d.blocks.length}
                   </span>
                 </button>
@@ -288,115 +362,127 @@ export function DashboardPage({
             })}
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('agent')}
-            className="text-xs font-bold text-[var(--accent)] hover:underline"
-          >
-            {lang === 'uz' ? 'AI Agent suhbati →' : lang === 'ru' ? 'Открыть чат с ИИ →' : 'Open AI Chat →'}
-          </button>
-        </div>
-
-        {/* Inline AI Command Input for Dashboard Control */}
-        <form onSubmit={handleAiFormSubmit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <input
-            type="text"
-            className="input-field min-h-0 flex-1 py-2 text-xs"
-            value={aiInput}
-            onChange={e => setAiInput(e.target.value)}
-            disabled={aiCommandBusy}
-            placeholder={
-              activeCustom
-                ? lang === 'uz'
-                  ? `AI orqali «${activeCustom.title}» panelini boshqaring (masalan: «Xaritani qo'sh», «Jadvalni olib tashla», «Nomini ... deb o'zgartir»)...`
-                  : lang === 'ru'
-                    ? `Управление дашбордом «${activeCustom.title}» через ИИ (напр.: «Добавь карту районов», «Убери таблицу», «Переименуй в Контроль»)...`
-                    : `Ask AI to manage "${activeCustom.title}" (e.g. "Add district map", "Remove table", "Rename to Q4 Control")...`
-                : lang === 'uz'
-                  ? 'AI orqali dashboard yarating yoki boshqaring (masalan: «Savdo va menyu bo‘yicha dashboard yarat», «7 kunlik davrni ko‘rsat»)...'
-                  : lang === 'ru'
-                    ? 'Попросите ИИ собрать или изменить дашборд (напр.: «Создай дашборд по продажам», «Добавь карту Ташкента», «Покажи за 7 дней»)...'
-                    : 'Ask AI to build or control dashboards (e.g. "Create sales dashboard", "Add Tashkent map", "Show 7 days")...'
-            }
-          />
-          <button
-            type="submit"
-            disabled={aiCommandBusy || !aiInput.trim()}
-            className="btn-primary min-h-0 shrink-0 px-4 py-2 text-xs"
-          >
-            {aiCommandBusy
-              ? lang === 'uz'
-                ? 'AI bajarilmoqda...'
-                : lang === 'ru'
-                  ? 'ИИ выполняет...'
-                  : 'AI Running...'
-              : lang === 'uz'
-                ? 'AI Bajarish'
-                : lang === 'ru'
-                  ? 'Выполнить ИИ'
-                  : 'Run AI'}
-          </button>
-        </form>
-
-        {/* Quick 1-click AI Dashboard Presets & Modifiers */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {presets.map((p, idx) => (
+          <div className="flex items-center gap-2">
             <button
-              key={idx}
               type="button"
-              disabled={aiCommandBusy}
-              onClick={() => void onRunAiDashboardCommand?.(p.prompt)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-[11px] font-bold text-[var(--text)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+              onClick={() => setShowAiBuilder(v => !v)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium text-[var(--text)] transition hover:border-[var(--accent)]"
             >
-              {p.label}
+              <IconSparkles size={13} className="text-[var(--accent)]" />
+              {lang === 'uz' ? 'AI Konstruktor' : lang === 'ru' ? 'AI Конструктор' : 'AI Builder'}
             </button>
-          ))}
-          {activeCustom && (
-            <>
-              <button
-                type="button"
-                disabled={aiCommandBusy}
-                onClick={() =>
-                  void onRunAiDashboardCommand?.(
-                    lang === 'uz'
-                      ? 'Dashboardga Toshkent tumanlari xaritasini qo‘sh'
-                      : lang === 'ru'
-                        ? 'Добавь в этот дашборд карту районов Ташкента'
-                        : 'Add Tashkent districts map to this dashboard',
-                  )
-                }
-                className="rounded-lg border border-[var(--accent)]/50 bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
-              >
-                {lang === 'uz' ? '+ Xaritani qo‘shish' : lang === 'ru' ? '+ Добавить карту в дашборд' : '+ Append Map'}
-              </button>
-              <button
-                type="button"
-                disabled={aiCommandBusy}
-                onClick={() =>
-                  void onRunAiDashboardCommand?.(
-                    lang === 'uz'
-                      ? 'Dashboardga byudjet grafik va jadvalini qo‘sh'
-                      : lang === 'ru'
-                        ? 'Добавь в этот дашборд бюджеты и прогноз перерасхода'
-                        : 'Add budget forecast chart to this dashboard',
-                  )
-                }
-                className="rounded-lg border border-[var(--accent)]/50 bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-bold text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
-              >
-                {lang === 'uz' ? '+ Byudjetni qo‘shish' : lang === 'ru' ? '+ Добавить бюджеты' : '+ Append Budgets'}
-              </button>
-            </>
-          )}
+            <button
+              type="button"
+              onClick={() => onNavigate('agent')}
+              className="text-xs font-medium text-[var(--accent)] hover:underline"
+            >
+              {lang === 'uz' ? 'AI Agent →' : lang === 'ru' ? 'Чат с ИИ →' : 'AI Chat →'}
+            </button>
+          </div>
         </div>
+
+        {(showAiBuilder || activeCustom) && (
+          <div className="grid gap-2.5 border-t border-[var(--border)] pt-3">
+            <form onSubmit={handleAiFormSubmit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                className="input-field min-h-0 flex-1 rounded-full py-2 text-xs"
+                value={aiInput}
+                onChange={e => setAiInput(e.target.value)}
+                disabled={aiCommandBusy}
+                placeholder={
+                  activeCustom
+                    ? lang === 'uz'
+                      ? `AI orqali «${activeCustom.title}» panelini boshqaring...`
+                      : lang === 'ru'
+                        ? `Управление дашбордом «${activeCustom.title}» через ИИ...`
+                        : `Ask AI to manage "${activeCustom.title}"...`
+                    : lang === 'uz'
+                      ? 'AI orqali maxsus dashboard yarating (masalan: «Toshkent xaritasi va yetkazish»)...'
+                      : lang === 'ru'
+                        ? 'Попросите ИИ собрать кастомный дашборд (напр.: «Создай дашборд по продажам»)...'
+                        : 'Ask AI to build a custom dashboard (e.g. "Create sales dashboard")...'
+                }
+              />
+              <button
+                type="submit"
+                disabled={aiCommandBusy || !aiInput.trim()}
+                className="btn-primary min-h-0 shrink-0 px-4 py-2 text-xs"
+              >
+                {aiCommandBusy
+                  ? lang === 'uz'
+                    ? 'AI...'
+                    : lang === 'ru'
+                      ? 'ИИ...'
+                      : 'Running...'
+                  : lang === 'uz'
+                    ? 'Yaratish'
+                    : lang === 'ru'
+                      ? 'Выполнить ИИ'
+                      : 'Run AI'}
+              </button>
+            </form>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {presets.map((p, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  disabled={aiCommandBusy}
+                  onClick={() => void onRunAiDashboardCommand?.(p.prompt)}
+                  className="rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-[11px] font-medium text-[var(--text)] transition hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50"
+                >
+                  {p.label}
+                </button>
+              ))}
+              {activeCustom && (
+                <>
+                  <button
+                    type="button"
+                    disabled={aiCommandBusy}
+                    onClick={() =>
+                      void onRunAiDashboardCommand?.(
+                        lang === 'uz'
+                          ? 'Dashboardga Toshkent tumanlari xaritasini qo‘sh'
+                          : lang === 'ru'
+                            ? 'Добавь в этот дашборд карту районов Ташкента'
+                            : 'Add Tashkent districts map to this dashboard',
+                      )
+                    }
+                    className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
+                  >
+                    {lang === 'uz' ? '+ Xaritani qo‘shish' : lang === 'ru' ? '+ Добавить карту' : '+ Append Map'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={aiCommandBusy}
+                    onClick={() =>
+                      void onRunAiDashboardCommand?.(
+                        lang === 'uz'
+                          ? 'Dashboardga byudjet grafik va jadvalini qo‘sh'
+                          : lang === 'ru'
+                            ? 'Добавь в этот дашборд бюджеты и прогноз перерасхода'
+                            : 'Add budget forecast chart to this dashboard',
+                      )
+                    }
+                    className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-3 py-1 text-[11px] font-medium text-[var(--accent)] transition hover:border-[var(--accent)] disabled:opacity-50"
+                  >
+                    {lang === 'uz' ? '+ Byudjetni qo‘shish' : lang === 'ru' ? '+ Добавить бюджеты' : '+ Append Budgets'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {aiCommandBanner && (
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--good)]/50 bg-[var(--good-soft)] px-3.5 py-2 text-xs font-bold text-[var(--good)]">
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--good)]/40 bg-[var(--good-soft)] px-3.5 py-2 text-xs font-medium text-[var(--good)]">
             <span>{aiCommandBanner}</span>
             {onDismissAiBanner && (
               <button
                 type="button"
                 onClick={onDismissAiBanner}
-                className="text-xs font-extrabold opacity-75 hover:opacity-100"
+                className="text-xs font-semibold opacity-75 hover:opacity-100"
               >
                 ✕
               </button>
@@ -411,7 +497,7 @@ export function DashboardPage({
           <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+                <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                   AI Custom Dashboard
                 </span>
                 <span className="text-[11px] text-[var(--muted)]">
@@ -429,7 +515,7 @@ export function DashboardPage({
                 >
                   <input
                     type="text"
-                    className="input-field max-w-sm py-1 text-sm font-bold"
+                    className="input-field max-w-sm py-1 text-sm font-medium"
                     value={draftTitle}
                     onChange={e => setDraftTitle(e.target.value)}
                     autoFocus
@@ -446,7 +532,7 @@ export function DashboardPage({
                   </button>
                 </form>
               ) : (
-                <h2 className="m-0 mt-1.5 truncate text-lg font-extrabold">{activeCustom.title}</h2>
+                <h2 className="m-0 mt-1.5 truncate text-lg font-medium tracking-tight">{activeCustom.title}</h2>
               )}
             </div>
 
@@ -473,7 +559,7 @@ export function DashboardPage({
                 <button
                   type="button"
                   onClick={() => onDeleteCustomDashboard(activeCustom.id)}
-                  className="rounded-xl border border-[var(--bad)]/40 bg-[var(--bad-soft)] px-3 py-1.5 text-xs font-bold text-[var(--bad)] hover:border-[var(--bad)]"
+                  className="rounded-full border border-[var(--bad)]/40 bg-[var(--bad-soft)] px-3.5 py-1.5 text-xs font-medium text-[var(--bad)] hover:border-[var(--bad)]"
                 >
                   {t.delete}
                 </button>
@@ -489,7 +575,7 @@ export function DashboardPage({
                     <button
                       type="button"
                       onClick={() => onRemoveWidgetFromDashboard(activeCustom.id, block.id)}
-                      className="text-[11px] font-bold text-[var(--muted)] hover:text-[var(--bad)]"
+                      className="text-[11px] font-medium text-[var(--muted)] hover:text-[var(--bad)]"
                     >
                       ✕ {lang === 'uz' ? 'Vidjetni olib tashlash' : lang === 'ru' ? 'Убрать виджет' : 'Remove widget'}
                     </button>
@@ -507,134 +593,494 @@ export function DashboardPage({
         </div>
       ) : (
         <>
-          {/* Item 26 AI Health Banner */}
-          <div className="card flex flex-wrap items-center justify-between gap-4 p-5" data-widget-id="widget-health">
-            <div className="flex items-center gap-4">
-              <div
-                className="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl border-2 text-center"
-                style={{ borderColor: healthColor, color: healthColor }}
-              >
-                <span className="text-xl font-extrabold leading-none tabular-nums">{report.healthScore}</span>
-                <span className="mt-0.5 text-[10px] font-bold opacity-80">/ 100</span>
-              </div>
+          {/* ROW 1: 4 Signature 38-Tick Animated KPI Cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" data-widget-id="widget-kpis">
+            <TickStatCard
+              title={t.revenue}
+              value={fmtCompactMoney(overview.revenue, lang)}
+              delta={`${overview.revenueDeltaPct >= 0 ? '+' : ''}${overview.revenueDeltaPct.toFixed(1)}%`}
+              deltaTone={overview.revenueDeltaPct >= 0 ? 'good' : 'bad'}
+              fillRatio={Math.min(0.92, Math.max(0.32, 0.68 + overview.revenueDeltaPct / 100))}
+              ticksColor="ink"
+              footerLabel={t.avgCheck}
+              footerRight={fmtMoney(overview.avgOrderValue, lang)}
+              icon={<IconWallet size={15} />}
+              onClick={() => onNavigate('sales')}
+              delayMs={0}
+            />
+
+            <TickStatCard
+              title={t.netProfit}
+              value={fmtCompactMoney(overview.netProfit, lang)}
+              delta={`${overview.netMarginPct.toFixed(1)}%`}
+              deltaTone={overview.netProfit >= 0 ? 'good' : 'bad'}
+              fillRatio={Math.min(0.95, Math.max(0.2, Math.abs(overview.netMarginPct) / 40))}
+              ticksColor="mint"
+              footerLabel={t.margin}
+              footerRight={`${overview.netMarginPct.toFixed(1)}%`}
+              icon={<IconCoins size={15} />}
+              onClick={() => onNavigate('audit')}
+              delayMs={60}
+            />
+
+            <TickStatCard
+              title={t.foodCost}
+              value={`${overview.foodCostPct.toFixed(1)}%`}
+              delta={overview.foodCostPct <= 35 ? 'OK' : `+${(overview.foodCostPct - 35).toFixed(1)}%`}
+              deltaTone={overview.foodCostPct <= 35 ? 'good' : 'bad'}
+              fillRatio={Math.min(0.95, Math.max(0.2, overview.foodCostPct / 55))}
+              ticksColor="pink"
+              footerLabel="Target 28–35%"
+              footerRight={fmtCompactMoney(overview.totalExpenses, lang)}
+              icon={<IconReceipt size={15} />}
+              onClick={() => onNavigate('expenses')}
+              delayMs={120}
+            />
+
+            <TickStatCard
+              title={t.orders}
+              value={String(overview.deliveredOrders)}
+              delta={`${overview.cancelRatePct.toFixed(1)}%`}
+              deltaTone={overview.cancelRatePct <= 6 ? 'good' : 'bad'}
+              fillRatio={Math.max(0.25, 1 - overview.cancelRatePct / 35)}
+              ticksColor="violet"
+              footerLabel={t.cancelRate}
+              footerRight={`${overview.cancelledOrders} (${fmtCompactMoney(overview.lostRevenue, lang)})`}
+              icon={<IconBag size={15} />}
+              onClick={() => onNavigate('sales')}
+              delayMs={180}
+            />
+          </div>
+
+          {/* Secondary Compact KPI Strip preserving all 8 metrics cleanly */}
+          <div className="card grid grid-cols-2 divide-y divide-[var(--border)] lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+            <div className="flex items-center justify-between px-4 py-3">
               <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">{t.healthScore}</div>
-                <div className="mt-0.5 text-base font-extrabold">{report.statusLabel[lang]}</div>
-                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[var(--muted)]">
-                  {report.executiveSummary[lang]}
-                </p>
+                <div className="text-[11px] font-medium text-[var(--muted)]">{t.totalExpenses}</div>
+                <div className="mt-0.5 text-sm font-semibold tabular-nums">{fmtMoney(overview.totalExpenses, lang)}</div>
               </div>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${
+                  overview.expensesDeltaPct <= 0
+                    ? 'bg-[var(--good-soft)] text-[var(--good)]'
+                    : 'bg-[var(--warn-soft)] text-[var(--warn)]'
+                }`}
+              >
+                {overview.expensesDeltaPct >= 0 ? '+' : ''}
+                {overview.expensesDeltaPct.toFixed(1)}%
+              </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-[var(--accent-soft)] px-4 py-2.5 text-right">
-                <div className="text-[11px] font-semibold text-[var(--muted)]">{t.potentialSaving}</div>
-                <div className="text-base font-extrabold text-[var(--accent)] tabular-nums">
-                  {fmtMoney(report.totalPotentialSavingUZS, lang)}
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <div className="text-[11px] font-medium text-[var(--muted)]">{t.laborCost}</div>
+                <div
+                  className={`mt-0.5 text-sm font-semibold tabular-nums ${
+                    overview.laborCostPct > 30 ? 'text-[var(--warn)]' : ''
+                  }`}
+                >
+                  {overview.laborCostPct.toFixed(1)}%
                 </div>
               </div>
-              <button type="button" onClick={() => onNavigate('audit')} className="btn-primary">
-                {t.openAudit}
+              <span className="text-[11px] text-[var(--muted)]">≤ 30%</span>
+            </div>
+
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <div className="text-[11px] font-medium text-[var(--muted)]">{t.adminUtility}</div>
+                <div className="mt-0.5 text-sm font-semibold tabular-nums">
+                  {overview.adminUtilityCostPct.toFixed(1)}%
+                </div>
+              </div>
+              <span className="text-[11px] text-[var(--muted)]">Rent & Utility</span>
+            </div>
+
+            <div className="flex items-center justify-between px-4 py-3">
+              <div>
+                <div className="text-[11px] font-medium text-[var(--muted)]">{t.lost}</div>
+                <div className="mt-0.5 text-sm font-semibold tabular-nums text-[var(--bad)]">
+                  {fmtMoney(overview.lostRevenue, lang)}
+                </div>
+              </div>
+              <span className="text-[11px] text-[var(--muted)]">{overview.cancelledOrders} ord</span>
+            </div>
+          </div>
+
+          {/* Priority Expenses Spotlight: Taxes, Electricity & Cost Groups */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" data-widget-id="widget-priority-expenses">
+            {/* Taxes Priority Card */}
+            <button
+              type="button"
+              onClick={() => openExpensesWithGroup('PRIORITY')}
+              className="card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 hover:border-[var(--border-strong)]"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                    {t.priorityBadge}
+                  </span>
+                  <span className="truncate text-[12px] font-medium text-[var(--muted)]">{t.taxes}</span>
+                </div>
+                <div className="mt-1.5 text-lg font-semibold tracking-tight tabular-nums text-[var(--text)]">
+                  {fmtMoney(taxesAmount, lang)}
+                </div>
+                <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                  {taxesRevenuePct.toFixed(1)}%{' '}
+                  {lang === 'uz' ? 'tushumdan' : lang === 'ru' ? 'от выручки' : 'of rev'} ·{' '}
+                  {taxesExpensePct.toFixed(1)}%{' '}
+                  {lang === 'uz' ? 'xarajatdan' : lang === 'ru' ? 'от расходов' : 'of exp'}
+                </div>
+              </div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bad-soft)] text-xs font-bold text-[var(--bad)] tabular-nums">
+                {taxesExpensePct.toFixed(0)}%
+              </div>
+            </button>
+
+            {/* Electricity & Utilities Priority Card */}
+            <button
+              type="button"
+              onClick={() => openExpensesWithGroup('PRIORITY')}
+              className="card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 hover:border-[var(--border-strong)]"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+                  >
+                    {t.priorityBadge}
+                  </span>
+                  <span className="truncate text-[12px] font-medium text-[var(--muted)]">
+                    {t.electricityUtilities}
+                  </span>
+                </div>
+                <div className="mt-1.5 text-lg font-semibold tracking-tight tabular-nums text-[var(--text)]">
+                  {fmtMoney(electricityUtilitiesAmount, lang)}
+                </div>
+                <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                  {electricityExpensePct.toFixed(1)}%{' '}
+                  {lang === 'uz' ? 'xarajatdan' : lang === 'ru' ? 'от расходов' : 'of exp'} ·{' '}
+                  {electricityRevenuePct.toFixed(1)}%{' '}
+                  {lang === 'uz' ? 'tushumdan' : lang === 'ru' ? 'выручки' : 'rev'}
+                </div>
+              </div>
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold tabular-nums"
+                style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+              >
+                {electricityExpensePct.toFixed(0)}%
+              </div>
+            </button>
+
+            {/* Priority vs Base vs Additional Cost Groups */}
+            <div className="card flex flex-col justify-between gap-2.5 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[12px] font-medium text-[var(--muted)]">
+                  {lang === 'uz'
+                    ? 'Xarajat guruhlari'
+                    : lang === 'ru'
+                      ? 'Группы затрат'
+                      : 'Cost Group Mix'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openExpensesWithGroup('ALL')}
+                  className="inline-flex items-center gap-0.5 text-[11px] font-medium text-[var(--muted)] hover:text-[var(--text)]"
+                >
+                  {t.all}
+                  <IconChevronRight size={12} />
+                </button>
+              </div>
+
+              <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+                <div
+                  style={{
+                    width: `${(priorityTotal / totalGroupBase) * 100}%`,
+                    background: 'var(--accent)',
+                  }}
+                />
+                <div
+                  style={{
+                    width: `${(baseTotal / totalGroupBase) * 100}%`,
+                    background: 'var(--mint)',
+                  }}
+                />
+                <div
+                  style={{
+                    width: `${(additionalTotal / totalGroupBase) * 100}%`,
+                    background: 'var(--accent-2)',
+                  }}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 text-[11px] tabular-nums">
+                <button
+                  type="button"
+                  onClick={() => openExpensesWithGroup('PRIORITY')}
+                  className="rounded-lg bg-[var(--surface-2)] px-2 py-1 text-left transition hover:bg-[var(--accent-soft)]"
+                >
+                  <div className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+                    <span className="truncate">{EXPENSE_GROUP_META.PRIORITY.shortLabel[lang]}</span>
+                  </div>
+                  <div className="font-semibold text-[var(--text)]">{fmtCompactMoney(priorityTotal, lang)}</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openExpensesWithGroup('BASE')}
+                  className="rounded-lg bg-[var(--surface-2)] px-2 py-1 text-left transition hover:bg-[var(--mint-soft)]"
+                >
+                  <div className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--mint)]" />
+                    <span className="truncate">{EXPENSE_GROUP_META.BASE.shortLabel[lang]}</span>
+                  </div>
+                  <div className="font-semibold text-[var(--text)]">{fmtCompactMoney(baseTotal, lang)}</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openExpensesWithGroup('ADDITIONAL')}
+                  className="rounded-lg bg-[var(--surface-2)] px-2 py-1 text-left transition hover:bg-[var(--info-soft)]"
+                >
+                  <div className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-2)]" />
+                    <span className="truncate">{EXPENSE_GROUP_META.ADDITIONAL.shortLabel[lang]}</span>
+                  </div>
+                  <div className="font-semibold text-[var(--text)]">{fmtCompactMoney(additionalTotal, lang)}</div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ROW 2: Key Performance Chart (2 cols) + Live District Tracking Map (1 col) */}
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+            <div className="card p-5 xl:col-span-2" data-widget-id="widget-rev-exp">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <IconActivity size={16} className="text-[var(--muted)]" />
+                  <h2 className="m-0 text-[15px] font-medium tracking-tight">{t.revVsExp}</h2>
+                </div>
+                <span className="rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-[11.5px] font-medium text-[var(--muted)] tabular-nums">
+                  {overview.period.from === overview.period.to
+                    ? overview.period.from
+                    : `${overview.period.from} — ${overview.period.to}`}{' '}
+                  · {timeseries.length}
+                </span>
+              </div>
+              <RevenueExpenseChart data={timeseries} lang={lang} />
+            </div>
+
+            {/* Dribbble Live Tracking Card */}
+            <div className="card flex flex-col justify-between p-5" data-widget-id="widget-map-preview">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="m-0 text-[15px] font-medium tracking-tight">
+                  {lang === 'uz'
+                    ? 'Jonli tumanlar xaritasi'
+                    : lang === 'ru'
+                      ? 'Живая карта доставки'
+                      : 'Live Tracking'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('map')}
+                  className="inline-flex items-center gap-0.5 text-xs font-medium text-[var(--muted)] transition hover:text-[var(--text)]"
+                >
+                  {lang === 'uz' ? 'Barchasi' : lang === 'ru' ? 'Все' : 'See All'}
+                  <IconChevronRight size={14} />
+                </button>
+              </div>
+
+              <TashkentDistrictMap
+                districts={districtGeo?.districts ?? []}
+                branches={districtGeo?.branches ?? []}
+                heatmapCells={districtGeo?.heatmapCells ?? []}
+                metric="orders"
+                lang={lang}
+                compact
+                minimal
+                onSelectDistrict={() => onNavigate('map')}
+              />
+
+              <button
+                type="button"
+                onClick={() => onNavigate('map')}
+                className="mt-3 flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/70 p-3 text-left transition hover:border-[var(--border-strong)]"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#27272a] text-white">
+                    <IconBox size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-medium text-[var(--text)]">
+                      {topDistrict ? topDistrict.name[lang] : 'Tashkent · 12'}
+                    </div>
+                    <div className="truncate text-[11.5px] text-[var(--muted)] tabular-nums">
+                      {liveOrdersCount} {t.orders.toLowerCase()} ·{' '}
+                      {fmtCompactMoney(topDistrict?.revenue ?? overview.revenue, lang)}
+                    </div>
+                  </div>
+                </div>
+                <span
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  style={{ background: 'var(--mint-soft)', color: 'var(--mint)' }}
+                >
+                  <LiveSunburstIcon />
+                  {lang === 'uz' ? 'Faol' : lang === 'ru' ? 'Онлайн' : 'On time'}
+                </span>
               </button>
             </div>
           </div>
 
-          {/* 8 KPI Cards */}
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4" data-widget-id="widget-kpis">
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.revenue}</div>
-              <div className="mt-1.5 text-xl font-extrabold tabular-nums">{fmtMoney(overview.revenue, lang)}</div>
-              <div className="mt-2"><DeltaBadge pct={overview.revenueDeltaPct} label={t.vsPrev} /></div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.netProfit}</div>
-              <div className={`mt-1.5 text-xl font-extrabold tabular-nums ${overview.netProfit >= 0 ? 'text-[var(--good)]' : 'text-[var(--bad)]'}`}>
-                {fmtMoney(overview.netProfit, lang)}
-              </div>
-              <div className="mt-2 text-xs font-semibold text-[var(--muted)]">
-                {t.margin}: <strong className="text-[var(--text)]">{overview.netMarginPct.toFixed(1)}%</strong>
-              </div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.totalExpenses}</div>
-              <div className="mt-1.5 text-xl font-extrabold tabular-nums">{fmtMoney(overview.totalExpenses, lang)}</div>
-              <div className="mt-2"><DeltaBadge pct={overview.expensesDeltaPct} label={t.vsPrev} /></div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.foodCost}</div>
-              <div className={`mt-1.5 text-xl font-extrabold tabular-nums ${overview.foodCostPct > 35 ? 'text-[var(--bad)]' : 'text-[var(--good)]'}`}>
-                {overview.foodCostPct.toFixed(1)}%
-              </div>
-              <div className="mt-2 text-xs text-[var(--muted)]">Target: 28–35%</div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.laborCost}</div>
-              <div className={`mt-1.5 text-xl font-extrabold tabular-nums ${overview.laborCostPct > 30 ? 'text-[var(--warn)]' : ''}`}>
-                {overview.laborCostPct.toFixed(1)}%
-              </div>
-              <div className="mt-2 text-xs text-[var(--muted)]">Target: ≤ 30%</div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.adminUtility}</div>
-              <div className="mt-1.5 text-xl font-extrabold tabular-nums">{overview.adminUtilityCostPct.toFixed(1)}%</div>
-              <div className="mt-2 text-xs text-[var(--muted)]">Rent + Utilities + Telecom</div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.orders}</div>
-              <div className="mt-1.5 text-xl font-extrabold tabular-nums">{overview.deliveredOrders}</div>
-              <div className="mt-2 text-xs text-[var(--muted)]">
-                {t.avgCheck}: <strong className="text-[var(--text)] tabular-nums">{fmtMoney(overview.avgOrderValue, lang)}</strong>
-              </div>
-            </div>
-
-            <div className="card p-4">
-              <div className="text-xs font-semibold text-[var(--muted)]">{t.cancelRate}</div>
-              <div className={`mt-1.5 text-xl font-extrabold tabular-nums ${overview.cancelRatePct > 10 ? 'text-[var(--bad)]' : ''}`}>
-                {overview.cancelRatePct.toFixed(1)}% ({overview.cancelledOrders})
-              </div>
-              <div className="mt-2 text-xs text-[var(--muted)]">
-                {t.lost}: <strong className="text-[var(--bad)] tabular-nums">{fmtMoney(overview.lostRevenue, lang)}</strong>
-              </div>
-            </div>
-          </div>
-
-          {/* Charts Grid */}
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-            <div className="card p-5 xl:col-span-2" data-widget-id="widget-rev-exp">
-              <h2 className="m-0 mb-3 text-sm font-extrabold">{t.revVsExp}</h2>
-              <RevenueExpenseChart data={timeseries} lang={lang} />
-            </div>
-
-            <div className="card flex flex-col justify-between p-5" data-widget-id="widget-categories">
+          {/* ROW 3: Gradient Progress Bars (Left) + Alert Feed (Center) + Glowing Pink AI Orb (Right) */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            {/* Expense Structure Gradient Sliders */}
+            <div className="card flex min-w-0 flex-col justify-between overflow-hidden p-5" data-widget-id="widget-categories">
               <div>
-                <h2 className="m-0 mb-4 text-sm font-extrabold">{t.expenseStructure}</h2>
-                <CategoryDonutChart items={overview.categoryBreakdown} lang={lang} />
-              </div>
-
-              <div className="mt-5 border-t border-[var(--border)] pt-4">
-                <div className="mb-2 text-xs font-bold text-[var(--muted)]">{t.paymentSplit}</div>
-                <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
-                  <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
-                    <div className="text-[var(--muted)]">{t.cash} ({overview.paymentSplit.cashOrders})</div>
-                    <div className="mt-0.5 font-extrabold">{fmtMoney(overview.paymentSplit.cashRevenue, lang)}</div>
-                  </div>
-                  <div className="rounded-xl bg-[var(--surface-2)] p-2.5">
-                    <div className="text-[var(--muted)]">{t.card} ({overview.paymentSplit.cardOrders})</div>
-                    <div className="mt-0.5 font-extrabold">{fmtMoney(overview.paymentSplit.cardRevenue, lang)}</div>
-                  </div>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 className="m-0 text-[15px] font-medium tracking-tight">{t.expenseStructure}</h2>
+                  <button
+                    type="button"
+                    onClick={() => openExpensesWithGroup(expenseGroup)}
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)]"
+                  >
+                    {lang === 'ru' ? 'Все' : lang === 'uz' ? 'Barchasi' : 'All'}
+                    <IconChevronRight size={14} />
+                  </button>
                 </div>
-                {overview.paymentSplit.unpaidCardOrders > 0 && (
-                  <div className="mt-2 rounded-xl bg-[var(--bad-soft)] px-3 py-2 text-xs font-semibold text-[var(--bad)]">
-                    {t.unpaidCard}: {overview.paymentSplit.unpaidCardOrders} ({fmtMoney(overview.paymentSplit.unpaidCardAmount, lang)})
+
+                {/* Category Group Filter Pills */}
+                <div className="no-scrollbar mb-3.5 flex items-center gap-1 overflow-x-auto rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[11px] font-medium">
+                  {(['ALL', 'PRIORITY', 'BASE', 'ADDITIONAL'] as const).map(g => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setExpenseGroup(g)}
+                      className={`shrink-0 rounded-full px-2.5 py-1 whitespace-nowrap transition ${
+                        expenseGroup === g
+                          ? 'bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
+                          : 'text-[var(--muted)] hover:text-[var(--text)]'
+                      }`}
+                    >
+                      {EXPENSE_GROUP_META[g].shortLabel[lang]}
+                    </button>
+                  ))}
+                </div>
+
+                {visibleCategories.length === 0 ? (
+                  <p className="py-8 text-center text-xs text-[var(--muted)]">{t.noData}</p>
+                ) : (
+                  <div className="grid gap-3.5">
+                    {visibleCategories.map((cat, idx) => (
+                      <GradientSliderRow
+                        key={cat.category}
+                        label={CATEGORY_LABELS[cat.category][lang]}
+                        valueText={fmtCompactMoney(cat.amount, lang)}
+                        sharePct={cat.sharePct}
+                        tone={
+                          cat.category === 'TAXES'
+                            ? 'pink'
+                            : cat.category === 'UTILITIES'
+                              ? 'orange'
+                              : cat.category === 'COMMUNICATION'
+                                ? 'blue'
+                                : SLIDER_TONES[idx % SLIDER_TONES.length]
+                        }
+                        delayMs={idx * 70}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
+
+              <div className="mt-5 border-t border-[var(--border)] pt-4">
+                <div className="mb-2 text-[11.5px] font-medium text-[var(--muted)]">{t.paymentSplit}</div>
+                <div className="grid grid-cols-2 gap-2 text-xs tabular-nums">
+                  <div className="rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+                    <div className="text-[11px] text-[var(--muted)]">{t.cash} ({overview.paymentSplit.cashOrders})</div>
+                    <div className="mt-0.5 font-semibold text-[var(--text)]">
+                      {fmtCompactMoney(overview.paymentSplit.cashRevenue, lang)}
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-[var(--surface-2)] px-3 py-2.5">
+                    <div className="text-[11px] text-[var(--muted)]">{t.card} ({overview.paymentSplit.cardOrders})</div>
+                    <div className="mt-0.5 font-semibold text-[var(--text)]">
+                      {fmtCompactMoney(overview.paymentSplit.cardRevenue, lang)}
+                    </div>
+                  </div>
+                </div>
+                {overview.paymentSplit.unpaidCardOrders > 0 && (
+                  <div className="mt-2 rounded-xl bg-[var(--bad-soft)] px-3 py-2 text-xs font-medium text-[var(--bad)]">
+                    {t.unpaidCard}: {overview.paymentSplit.unpaidCardOrders} (
+                    {fmtMoney(overview.paymentSplit.unpaidCardAmount, lang)})
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Dribbble Alert Feed */}
+            <div className="card flex min-w-0 flex-col justify-between overflow-hidden p-5" data-widget-id="widget-findings">
+              <div className="min-w-0">
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <h2 className="m-0 text-[15px] font-medium tracking-tight">
+                    {t.urgentFindings} ({findings.length})
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('audit')}
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-[var(--muted)] hover:text-[var(--text)]"
+                  >
+                    {t.openAudit}
+                    <IconChevronRight size={14} />
+                  </button>
+                </div>
+
+                {findings.length === 0 ? (
+                  <p className="py-10 text-center text-xs text-[var(--muted)]">{t.noData}</p>
+                ) : (
+                  <div className="grid gap-2.5">
+                    {findings.slice(0, 4).map((f, idx) => {
+                      const tone =
+                        f.kind === 'ERROR'
+                          ? 'bad'
+                          : f.kind === 'INEFFICIENCY'
+                            ? 'warn'
+                            : 'info';
+                      const icon =
+                        f.kind === 'ERROR' ? (
+                          <IconAlertTriangle size={17} />
+                        ) : f.kind === 'INEFFICIENCY' ? (
+                          <IconTrendingDown size={17} />
+                        ) : (
+                          <IconWrench size={17} />
+                        );
+                      return (
+                        <AlertFeedRow
+                          key={f.id}
+                          icon={icon}
+                          tone={tone}
+                          title={f.title[lang]}
+                          subtitle={f.detail[lang]}
+                          pillText={fmtCompactMoney(f.amountImpact, lang)}
+                          onClick={() => onNavigate('audit')}
+                          delayMs={idx * 75}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Dribbble Glowing Pink AI Orb Insight Card */}
+            <div data-widget-id="widget-health" className="flex min-w-0 flex-col [&>.card]:flex-1">
+              <AiInsightOrbCard
+                badgeLabel={t.healthScore}
+                score={report.healthScore}
+                updatedLabel={report.statusLabel[lang]}
+                headline={report.executiveSummary[lang]}
+                statusLine={`${t.potentialSaving}: ${fmtMoney(report.totalPotentialSavingUZS, lang)}`}
+                ctaLabel={t.openAudit}
+                onCta={() => onNavigate('audit')}
+              />
             </div>
           </div>
 
@@ -642,10 +1088,18 @@ export function DashboardPage({
           {pinnedBlocks.length > 0 && (
             <div className="card grid gap-3 p-5" data-widget-id="widget-pinned">
               <div className="flex items-center justify-between">
-                <h2 className="m-0 text-sm font-extrabold">
-                  {lang === 'uz' ? 'AI Agentdan biriktirilgan vidjetlar' : lang === 'ru' ? 'Закреплённые AI-виджеты' : 'Pinned AI Insights'}
+                <h2 className="m-0 text-[15px] font-medium tracking-tight">
+                  {lang === 'uz'
+                    ? 'AI Agentdan biriktirilgan vidjetlar'
+                    : lang === 'ru'
+                      ? 'Закреплённые AI-виджеты'
+                      : 'Pinned AI Insights'}
                 </h2>
-                <button type="button" onClick={() => onNavigate('agent')} className="text-xs font-bold text-[var(--accent)]">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('agent')}
+                  className="text-xs font-medium text-[var(--accent)] hover:underline"
+                >
                   + {t.nav.agent}
                 </button>
               </div>
@@ -655,7 +1109,7 @@ export function DashboardPage({
                     <button
                       type="button"
                       onClick={() => onUnpinBlock(block.id)}
-                      className="mb-1 text-[11px] font-bold text-[var(--muted)] hover:text-[var(--bad)]"
+                      className="mb-1 text-[11px] font-medium text-[var(--muted)] hover:text-[var(--bad)]"
                     >
                       ✕ Remove widget
                     </button>
@@ -669,45 +1123,6 @@ export function DashboardPage({
               ))}
             </div>
           )}
-
-          {/* Top Urgent Findings */}
-          <div className="card p-5" data-widget-id="widget-findings">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="m-0 text-sm font-extrabold">{t.urgentFindings} ({findings.length})</h2>
-              <button type="button" onClick={() => onNavigate('audit')} className="text-xs font-bold text-[var(--accent)]">
-                {t.openAudit}
-              </button>
-            </div>
-
-            <div className="grid gap-2.5">
-              {findings.slice(0, 5).map(f => (
-                <div
-                  key={f.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-md px-2 py-0.5 text-[10px] font-extrabold uppercase ${
-                        f.kind === 'ERROR'
-                          ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
-                          : f.kind === 'INEFFICIENCY'
-                            ? 'bg-[var(--warn-soft)] text-[var(--warn)]'
-                            : 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                      }`}>
-                        {f.kind} · {f.code}
-                      </span>
-                      <span className="text-sm font-bold">{f.title[lang]}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{f.detail[lang]}</p>
-                  </div>
-                  <div className="shrink-0 text-right tabular-nums">
-                    <div className="text-[10px] font-semibold text-[var(--muted)]">{t.impact}</div>
-                    <div className="text-sm font-extrabold text-[var(--bad)]">{fmtMoney(f.amountImpact, lang)}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </>
       )}
     </div>

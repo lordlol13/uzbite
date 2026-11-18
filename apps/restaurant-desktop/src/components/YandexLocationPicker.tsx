@@ -121,7 +121,7 @@ export function YandexLocationPicker({
         const markerElement = document.createElement('div');
         markerElement.setAttribute('aria-label', 'UzBite Restaurant');
         markerElement.style.cssText =
-          'width:30px;height:30px;border:5px solid white;border-radius:50% 50% 50% 0;background:#f8781d;box-shadow:0 5px 18px #0005;transform:translate(-50%,-100%) rotate(-45deg);cursor:grab';
+          'width:30px;height:30px;border:5px solid white;border-radius:50% 50% 50% 0;background:#ec5180;box-shadow:0 5px 18px #0005;transform:translate(-50%,-100%) rotate(-45deg);cursor:grab';
 
         let marker: MapChild | null = null;
         const choose = (coordinates: Coordinates) => {

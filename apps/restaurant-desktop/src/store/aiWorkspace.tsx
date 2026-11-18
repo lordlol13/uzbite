@@ -449,6 +449,8 @@ export interface AiWorkspaceContextValue {
   highlightedWidgetId: string | null;
   days: number;
   setDays: (days: number) => void;
+  customPeriod: { from: string; to: string } | null;
+  setCustomPeriod: (period: { from: string; to: string } | null) => void;
   month: string;
   setMonth: (month: string) => void;
   selectedDistrictId: TashkentDistrictId | '';
@@ -499,8 +501,14 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
   const [activeCustomDashboardId, setActiveCustomDashboardId] = useState<string | null>(null);
   const [pinnedBlocks, setPinnedBlocks] = useState<AgentUiBlock[]>(() => loadPinned(restaurantId));
   const [highlightedWidgetId, setHighlightedWidgetId] = useState<string | null>(null);
-  const [days, setDays] = useState<number>(30);
+  const [days, setDaysState] = useState<number>(30);
+  const [customPeriod, setCustomPeriod] = useState<{ from: string; to: string } | null>(null);
   const [month, setMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+
+  const setDays = useCallback((nextDays: number) => {
+    setDaysState(nextDays);
+    setCustomPeriod(null);
+  }, []);
   const [selectedDistrictId, setSelectedDistrictId] = useState<TashkentDistrictId | ''>('');
 
   const turnsRef = useRef<AiChatTurn[]>(turns);
@@ -731,7 +739,28 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
         }
 
         if (action.type === 'set_filters') {
-          if (action.days) setDays(action.days);
+          const actionFrom =
+            'from' in action && typeof action.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.from)
+              ? action.from
+              : undefined;
+          const actionTo =
+            'to' in action && typeof action.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.to)
+              ? action.to
+              : undefined;
+          if (actionFrom || actionTo) {
+            const resolvedFrom = actionFrom ?? actionTo!;
+            const resolvedTo = actionTo ?? actionFrom!;
+            setCustomPeriod({ from: resolvedFrom, to: resolvedTo });
+            const diffMs =
+              new Date(`${resolvedTo}T00:00:00Z`).getTime() -
+              new Date(`${resolvedFrom}T00:00:00Z`).getTime();
+            setDaysState(Math.max(1, Math.round(diffMs / 86_400_000) + 1));
+            if (!action.month) {
+              setMonth(resolvedTo.slice(0, 7));
+            }
+          } else if (action.days) {
+            setDays(action.days);
+          }
           if (action.month) setMonth(action.month);
           if (action.districtId !== undefined) setSelectedDistrictId(action.districtId);
           const msg =
@@ -1042,7 +1071,9 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
       setBusy(true);
       setStatusBanner(null);
 
-      const { from, to } = dateRangeForDays(days);
+      const fallbackRange = dateRangeForDays(days);
+      const from = customPeriod?.from ?? fallbackRange.from;
+      const to = customPeriod?.to ?? fallbackRange.to;
       const startedAt = performance.now();
 
       try {
@@ -1111,7 +1142,7 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
         setBusy(false);
       }
     },
-    [busy, days, executeAction, lang, month, screenContext, selectedDistrictId, selectedModel],
+    [busy, customPeriod, days, executeAction, lang, month, screenContext, selectedDistrictId, selectedModel],
   );
 
   const rateTurn = useCallback(async (turnId: string, rating: 'up' | 'down') => {
@@ -1167,6 +1198,8 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
       highlightedWidgetId,
       days,
       setDays,
+      customPeriod,
+      setCustomPeriod,
       month,
       setMonth,
       selectedDistrictId,
@@ -1191,6 +1224,7 @@ export function AiWorkspaceProvider({ children }: { children: ReactNode }) {
       busy,
       clearConversation,
       customDashboards,
+      customPeriod,
       days,
       deleteDashboard,
       dismissStatusBanner,

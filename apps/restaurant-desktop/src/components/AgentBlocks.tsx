@@ -13,13 +13,13 @@ type ChartBlock = Extract<AgentUiBlock, { kind: 'chart' }>;
 type ChartItem = ChartBlock['items'][number];
 
 const PALETTE = [
-  '#f8781d',
+  '#ec5180',
+  '#8172ff',
+  '#36b89a',
+  '#ff8a47',
   '#3b82f6',
-  '#1f8b52',
-  '#8b5cf6',
-  '#eab308',
-  '#06b6d4',
-  '#ec4899',
+  '#1ea04a',
+  '#f472b6',
   '#6366f1',
 ];
 
@@ -258,7 +258,7 @@ function DonutSvg({ items, lang }: { items: ChartItem[]; lang: Language }) {
           <span className="max-w-[90px] truncate text-[10px] font-semibold text-[var(--muted)]">
             {activeItem ? activeItem.label : copy.total}
           </span>
-          <strong className="text-sm font-extrabold text-[var(--text)] tabular-nums">
+          <strong className="text-sm font-semibold text-[var(--text)] tabular-nums">
             {fmtChartNum(activeItem ? activeItem.value : total, lang)}
           </strong>
           {activeShare && (
@@ -288,7 +288,7 @@ function DonutSvg({ items, lang }: { items: ChartItem[]; lang: Language }) {
                 <span className="truncate font-semibold text-[var(--text)]">{item.label}</span>
               </div>
               <div className="shrink-0 tabular-nums">
-                <span className="font-extrabold text-[var(--text)]">{fmtChartNum(item.value, lang)}</span>
+                <span className="font-semibold text-[var(--text)]">{fmtChartNum(item.value, lang)}</span>
                 <span className="ml-1.5 text-[11px] text-[var(--muted)]">({share}%)</span>
               </div>
             </div>
@@ -353,8 +353,8 @@ function LineTrendSvg({ items, lang }: { items: ChartItem[]; lang: Language }) {
       <svg viewBox={`0 0 ${w} ${h}`} className="h-52 w-full overflow-visible">
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#f8781d" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="#f8781d" stopOpacity="0.02" />
+            <stop offset="0%" stopColor="#ec5180" stopOpacity="0.32" />
+            <stop offset="100%" stopColor="#ec5180" stopOpacity="0.02" />
           </linearGradient>
         </defs>
 
@@ -385,7 +385,7 @@ function LineTrendSvg({ items, lang }: { items: ChartItem[]; lang: Language }) {
             )}
             <polyline
               fill="none"
-              stroke="#f8781d"
+              stroke="#ec5180"
               strokeWidth="2.6"
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -412,7 +412,7 @@ function LineTrendSvg({ items, lang }: { items: ChartItem[]; lang: Language }) {
                 cx={cx}
                 cy={cy}
                 r={isHov ? 6 : 4}
-                fill={item.color ?? '#f8781d'}
+                fill={item.color ?? '#ec5180'}
                 stroke="var(--surface)"
                 strokeWidth="2"
               >
@@ -470,7 +470,7 @@ function HorizontalBars({ items, lang }: { items: ChartItem[]; lang: Language })
                 <span className="truncate font-bold text-[var(--text)]">{item.label}</span>
                 {delta !== null && (
                   <span
-                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums ${
+                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${
                       delta > 0
                         ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
                         : 'bg-[var(--good-soft)] text-[var(--good)]'
@@ -481,7 +481,7 @@ function HorizontalBars({ items, lang }: { items: ChartItem[]; lang: Language })
                   </span>
                 )}
               </div>
-              <span className="shrink-0 font-extrabold text-[var(--text)] tabular-nums">
+              <span className="shrink-0 font-semibold text-[var(--text)] tabular-nums">
                 {fmtChartNum(item.value, lang)}
                 {item.secondaryValue !== undefined && (
                   <span className="ml-1.5 font-normal text-[var(--muted)]">
@@ -527,7 +527,7 @@ function AgentChartBlock({
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="truncate text-xs font-extrabold text-[var(--text)]">{block.title}</span>
+            <span className="truncate text-xs font-semibold text-[var(--text)]">{block.title}</span>
             <span className="shrink-0 rounded-md bg-[var(--surface-2)] px-1.5 py-0.5 text-[9px] font-bold uppercase text-[var(--muted)]">
               {block.chartType}
             </span>
@@ -588,7 +588,7 @@ export function AgentBlocks({
           return (
             <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5">
               <div className="mb-2.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-[var(--text)]">{block.title ?? 'KPIs'}</span>
+                <span className="text-xs font-semibold text-[var(--text)]">{block.title ?? 'KPIs'}</span>
                 {pinBtn}
               </div>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -604,7 +604,7 @@ export function AgentBlocks({
                   return (
                     <div key={idx} className="rounded-xl border border-[var(--border)]/60 bg-[var(--surface-2)] p-2.5">
                       <div className="text-[11px] font-semibold text-[var(--muted)]">{item.label}</div>
-                      <div className={`mt-1 text-sm font-extrabold tabular-nums ${toneCls}`}>{item.value}</div>
+                      <div className={`mt-1 text-sm font-semibold tabular-nums ${toneCls}`}>{item.value}</div>
                       {item.sublabel && (
                         <div className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{item.sublabel}</div>
                       )}
@@ -625,7 +625,7 @@ export function AgentBlocks({
                 : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)]';
           return (
             <div key={block.id} className={`rounded-2xl border p-3.5 ${style}`}>
-              <div className="text-xs font-extrabold">{block.title}</div>
+              <div className="text-xs font-semibold">{block.title}</div>
               <p className="mt-1 text-xs leading-relaxed opacity-90">{block.body}</p>
             </div>
           );
@@ -640,7 +640,7 @@ export function AgentBlocks({
           return (
             <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="mb-2.5 flex items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-[var(--text)]">{block.title}</span>
+                <span className="text-xs font-semibold text-[var(--text)]">{block.title}</span>
                 {pinBtn}
               </div>
               <div className="overflow-x-auto">
@@ -676,7 +676,7 @@ export function AgentBlocks({
           return (
             <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-[var(--text)]">{block.title}</span>
+                <span className="text-xs font-semibold text-[var(--text)]">{block.title}</span>
                 {pinBtn}
               </div>
               <TashkentDistrictMap
@@ -705,7 +705,7 @@ export function AgentBlocks({
             <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
               <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs font-extrabold text-[var(--text)]">{block.title}</div>
+                  <div className="text-xs font-semibold text-[var(--text)]">{block.title}</div>
                   <div className="text-[11px] text-[var(--muted)] tabular-nums">
                     {copy.pool}: {formatMoney(alloc.totalBudget, lang)} · +{formatMoney(alloc.expectedTotalProfitLift, lang)}
                   </div>
@@ -731,7 +731,7 @@ export function AgentBlocks({
                         <td className="px-2 py-1.5 tabular-nums">{b.roiPct}%</td>
                         <td className="px-2 py-1.5 font-bold text-[var(--accent)] tabular-nums">{b.efficiencyScore}</td>
                         <td className="px-2 py-1.5 tabular-nums">{formatCompactMoney(b.currentBudget, lang)}</td>
-                        <td className="px-2 py-1.5 font-extrabold tabular-nums">{formatCompactMoney(b.recommendedBudget, lang)}</td>
+                        <td className="px-2 py-1.5 font-semibold tabular-nums">{formatCompactMoney(b.recommendedBudget, lang)}</td>
                         <td className={`px-2 py-1.5 font-bold tabular-nums ${b.deltaPct >= 0 ? 'text-[var(--good)]' : 'text-[var(--warn)]'}`}>
                           {b.deltaPct >= 0 ? '+' : ''}
                           {b.deltaPct}%

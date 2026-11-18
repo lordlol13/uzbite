@@ -928,6 +928,8 @@ export type AgentClientAction =
       restaurantId?: string;
       days?: number;
       month?: string;
+      from?: string;
+      to?: string;
       districtId?: TashkentDistrictId | '';
       label: string;
     }

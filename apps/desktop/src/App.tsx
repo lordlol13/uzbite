@@ -11,6 +11,15 @@ import type {
 } from '@uzbite/shared';
 import { AiCopilotDrawer } from './components/AiCopilotDrawer';
 import {
+  BrandLogoBadge,
+  IconBell,
+  IconLogOut,
+  IconMoon,
+  IconRefresh,
+  IconSparkles,
+  IconSun,
+} from './components/DesignWidgets';
+import {
   DEFAULT_AGENT_MODEL,
   applyBranchAllocation,
   clearPinnedWidgets,
@@ -20,6 +29,7 @@ import {
   fetchAnalysis,
   fetchBudgets,
   fetchDishes,
+  fetchDistrictAnalytics,
   fetchExpenses,
   fetchHeatmap,
   fetchTimeseries,
@@ -35,7 +45,7 @@ import {
   type AgentChatTurn,
   type StoredAuth,
 } from './lib/api';
-import { COPY, fmtCompactMoney, type NavTab } from './lib/i18n';
+import { COPY, fmtCompactMoney, type ExpenseGroupId, type NavTab } from './lib/i18n';
 import { AgentPage } from './pages/AgentPage';
 import { AuditPage } from './pages/AuditPage';
 import { BranchesPage } from './pages/BranchesPage';
@@ -56,12 +66,66 @@ import { LoginPage } from './pages/LoginPage';
 import { MapPage } from './pages/MapPage';
 import { SalesPage } from './pages/SalesPage';
 
-function dateRangeForDays(days: number): { from: string; to: string } {
+type PeriodPresetId = 'today' | 'yesterday' | 'last_week' | 'this_month';
+
+type PeriodSelection =
+  | { kind: 'days'; days: number }
+  | { kind: 'preset'; preset: PeriodPresetId }
+  | { kind: 'custom'; from: string; to: string };
+
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addLocalDays(d: Date, delta: number): Date {
+  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  copy.setDate(copy.getDate() + delta);
+  return copy;
+}
+
+function resolvePeriodRange(sel: PeriodSelection): { from: string; to: string; days: number } {
   const now = new Date();
-  const to = now.toISOString().slice(0, 10);
-  const start = new Date(now.getTime() - (days - 1) * 86_400_000);
-  const from = start.toISOString().slice(0, 10);
-  return { from, to };
+  let from: string;
+  let to: string;
+  if (sel.kind === 'days') {
+    to = toYmd(now);
+    from = toYmd(addLocalDays(now, -(sel.days - 1)));
+    return { from, to, days: sel.days };
+  }
+  if (sel.kind === 'preset') {
+    if (sel.preset === 'today') {
+      from = toYmd(now);
+      to = from;
+    } else if (sel.preset === 'yesterday') {
+      from = toYmd(addLocalDays(now, -1));
+      to = from;
+    } else if (sel.preset === 'last_week') {
+      const dow = (now.getDay() + 6) % 7;
+      const thisMonday = addLocalDays(now, -dow);
+      from = toYmd(addLocalDays(thisMonday, -7));
+      to = toYmd(addLocalDays(thisMonday, -1));
+    } else {
+      from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      to = toYmd(now);
+    }
+  } else {
+    from = sel.from <= sel.to ? sel.from : sel.to;
+    to = sel.from <= sel.to ? sel.to : sel.from;
+  }
+  const diffMs = new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime();
+  const days = Math.max(1, Math.round(diffMs / 86_400_000) + 1);
+  return { from, to, days };
+}
+
+function formatShortDateBadge(from: string, to: string): string {
+  const fmt = (ymd: string) => {
+    const [, m, d] = ymd.split('-');
+    return `${d}.${m}`;
+  };
+  return from === to ? fmt(from) : `${fmt(from)}–${fmt(to)}`;
 }
 
 export default function App() {
@@ -69,8 +133,13 @@ export default function App() {
   const [auth, setAuth] = useState<StoredAuth | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [tab, setTab] = useState<NavTab>('dashboard');
-  const [days, setDays] = useState<number>(30);
-  const [month, setMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [period, setPeriod] = useState<PeriodSelection>({ kind: 'days', days: 30 });
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState('');
+  const [draftTo, setDraftTo] = useState('');
+  const [expensesShowAllDates, setExpensesShowAllDates] = useState(false);
+  const [expensesGroupFilter, setExpensesGroupFilter] = useState<ExpenseGroupId>('ALL');
+  const [month, setMonth] = useState<string>(() => toYmd(new Date()).slice(0, 7));
   const [selectedDistrictId, setSelectedDistrictId] = useState<TashkentDistrictId | ''>('');
   const [lang, setLang] = useState<Language>('ru');
   const [theme, setTheme] = useState<Theme>('light');
@@ -83,6 +152,7 @@ export default function App() {
   const [dashboardAiBusy, setDashboardAiBusy] = useState(false);
   const [dashboardAiBanner, setDashboardAiBanner] = useState<string | null>(null);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [agentTurns, setAgentTurns] = useState<AgentChatTurn[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentStatusBanner, setAgentStatusBanner] = useState<string | null>(null);
@@ -153,7 +223,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [highlightedWidgetId, tab]);
 
-  const { from, to } = useMemo(() => dateRangeForDays(days), [days]);
+  const { from, to, days } = useMemo(() => resolvePeriodRange(period), [period]);
   const defaultMonth = to.slice(0, 7);
   const activeRestaurantId = auth?.selectedRestaurantId ?? '';
 
@@ -170,8 +240,14 @@ export default function App() {
   });
 
   const expensesQuery = useQuery({
-    queryKey: ['business-expenses', activeRestaurantId],
-    queryFn: () => fetchExpenses({}),
+    queryKey: [
+      'business-expenses',
+      activeRestaurantId,
+      expensesShowAllDates ? 'all' : 'period',
+      expensesShowAllDates ? '' : from,
+      expensesShowAllDates ? '' : to,
+    ],
+    queryFn: () => fetchExpenses(expensesShowAllDates ? {} : { from, to }),
     enabled: Boolean(auth) && tab === 'expenses',
   });
 
@@ -191,6 +267,13 @@ export default function App() {
     queryKey: ['business-heatmap', activeRestaurantId, from, to],
     queryFn: () => fetchHeatmap(from, to),
     enabled: Boolean(auth) && tab === 'sales' && analysisQuery.isSuccess && !analysisQuery.data?.heatmap,
+  });
+
+  const dashboardGeoQuery = useQuery({
+    queryKey: ['business-geo-dashboard', activeRestaurantId, from, to],
+    queryFn: () => fetchDistrictAnalytics(from, to, 'all'),
+    enabled: Boolean(auth) && tab === 'dashboard',
+    staleTime: 60_000,
   });
 
   const agentModelsQuery = useQuery({
@@ -269,7 +352,26 @@ export default function App() {
       if (action.restaurantId && action.restaurantId !== activeRestaurantId) {
         await handleRestaurantSwitch(action.restaurantId);
       }
-      if (action.days) setDays(action.days);
+      const actionFrom =
+        'from' in action && typeof action.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.from)
+          ? action.from
+          : undefined;
+      const actionTo =
+        'to' in action && typeof action.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(action.to)
+          ? action.to
+          : undefined;
+      if (actionFrom || actionTo) {
+        const resolvedFrom = actionFrom ?? actionTo!;
+        const resolvedTo = actionTo ?? actionFrom!;
+        setPeriod({ kind: 'custom', from: resolvedFrom, to: resolvedTo });
+        setExpensesShowAllDates(false);
+        if (!action.month) {
+          setMonth(resolvedTo.slice(0, 7));
+        }
+      } else if (action.days) {
+        setPeriod({ kind: 'days', days: action.days });
+        setExpensesShowAllDates(false);
+      }
       if (action.month) setMonth(action.month);
       if (action.districtId !== undefined) setSelectedDistrictId(action.districtId);
       return;
@@ -678,37 +780,329 @@ export default function App() {
     }
   }
 
+  const topNavShortLabels: Record<NavTab, string> =
+    lang === 'uz'
+      ? {
+          dashboard: 'Asosiy',
+          agent: 'AI Agent',
+          audit: 'Audit',
+          budgets: 'Byudjet',
+          branches: 'Filiallar',
+          map: 'Xarita',
+          expenses: 'Xarajat',
+          sales: 'Savdo',
+        }
+      : lang === 'en'
+        ? {
+            dashboard: 'Overview',
+            agent: 'AI Agent',
+            audit: 'Audit',
+            budgets: 'Budgets',
+            branches: 'Branches',
+            map: 'Map',
+            expenses: 'Expenses',
+            sales: 'Sales',
+          }
+        : {
+            dashboard: 'Главная',
+            agent: 'Агент',
+            audit: 'Аудит',
+            budgets: 'Бюджеты',
+            branches: 'Филиалы',
+            map: 'Карта',
+            expenses: 'Расходы',
+            sales: 'Продажи',
+          };
+
+  const userInitials = (auth.user.name || auth.user.email || 'UB')
+    .split(/\s+/)
+    .map(w => w[0] ?? '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
-    <div className="flex min-h-screen bg-[var(--bg)] text-[var(--text)]">
-      {/* Desktop Sidebar */}
-      <aside className="no-print hidden w-64 shrink-0 flex-col justify-between border-r border-[var(--border)] bg-[var(--surface)] p-4 md:flex">
-        <div>
-          <div className="flex items-center gap-2.5 px-2 py-1">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f8781d] text-base font-extrabold text-white">
-              U
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--text)]">
+      {/* Dribbble Sticky Top Navigation Shell */}
+      <header className="no-print glass-bar sticky top-0 z-30 border-b border-[var(--border)]">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between gap-3">
+            {/* Brand & Restaurant Switcher */}
+            <div className="flex shrink-0 items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setTab('dashboard')}
+                className="flex shrink-0 items-center gap-2.5 text-left"
+              >
+                <BrandLogoBadge size={36} />
+                <span className="hidden text-[15px] font-semibold tracking-tight 2xl:inline">
+                  {t.appName}
+                </span>
+              </button>
+
+              <select
+                aria-label={t.restaurant}
+                className="input-field min-h-0 w-auto shrink-0 rounded-full py-1.5 text-xs font-medium"
+                value={activeRestaurantId}
+                onChange={e => void handleRestaurantSwitch(e.target.value)}
+              >
+                {auth.restaurants.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
             </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-extrabold tracking-tight">{t.appName}</div>
-              <div className="truncate text-[10px] font-semibold text-[var(--muted)]">Cases #24–#26 · Gemini 3.8</div>
+
+            {/* Center Horizontal Single-Line Pill Tabs (LG+) */}
+            <nav className="no-scrollbar hidden min-w-0 items-center gap-0.5 overflow-x-auto whitespace-nowrap rounded-full border border-[var(--border)] bg-[var(--surface-2)]/75 p-1 lg:flex">
+              {navItems.map(item => {
+                const active = tab === item;
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setTab(item)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] whitespace-nowrap transition ${
+                      active
+                        ? 'bg-[var(--surface)] font-medium text-[var(--text)] shadow-[var(--pill-shadow)]'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    <span>{topNavShortLabels[item]}</span>
+                    {item === 'audit' && analysis && analysis.findings.length > 0 && (
+                      <span className="rounded-full bg-[var(--bad-soft)] px-1.5 py-0.2 text-[10px] font-semibold text-[var(--bad)] tabular-nums">
+                        {analysis.findings.length}
+                      </span>
+                    )}
+                    {item === 'agent' && (
+                      <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.2 text-[10px] font-semibold text-[var(--accent)]">
+                        AI
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Right Controls Cluster */}
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Period Pill + Exact Date Popover */}
+              <div className="relative hidden shrink-0 items-center sm:flex">
+                <div className="flex items-center rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11.5px] font-medium shadow-[var(--pill-shadow)]">
+                  {[
+                    [7, t.period7],
+                    [30, t.period30],
+                    [60, t.period60],
+                    [90, t.period90],
+                  ].map(([d, label]) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setPeriod({ kind: 'days', days: Number(d) });
+                        setExpensesShowAllDates(false);
+                        setDatePickerOpen(false);
+                      }}
+                      className={`rounded-full px-2.5 py-1 whitespace-nowrap transition ${
+                        period.kind === 'days' && period.days === d
+                          ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                          : 'text-[var(--muted)] hover:text-[var(--text)]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftFrom(from);
+                      setDraftTo(to);
+                      setDatePickerOpen(v => !v);
+                    }}
+                    className={`rounded-full px-2.5 py-1 whitespace-nowrap tabular-nums transition ${
+                      period.kind !== 'days'
+                        ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                        : 'text-[var(--muted)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {period.kind !== 'days' ? formatShortDateBadge(from, to) : t.periodCustom}
+                  </button>
+                </div>
+
+                {datePickerOpen && (
+                  <div className="card absolute right-0 top-11 z-40 w-80 p-3.5 shadow-xl">
+                    <div className="mb-2.5 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[var(--text)]">
+                        {t.activePeriod}: {formatShortDateBadge(from, to)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDatePickerOpen(false)}
+                        className="rounded-full px-1.5 py-0.5 text-xs text-[var(--muted)] hover:text-[var(--text)]"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="mb-3 grid grid-cols-2 gap-1.5">
+                      {(
+                        [
+                          ['today', t.periodToday],
+                          ['yesterday', t.periodYesterday],
+                          ['last_week', t.periodLastWeek],
+                          ['this_month', t.periodThisMonth],
+                        ] as Array<[PeriodPresetId, string]>
+                      ).map(([presetId, label]) => (
+                        <button
+                          key={presetId}
+                          type="button"
+                          onClick={() => {
+                            setPeriod({ kind: 'preset', preset: presetId });
+                            setExpensesShowAllDates(false);
+                            setDatePickerOpen(false);
+                          }}
+                          className={`rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition ${
+                            period.kind === 'preset' && period.preset === presetId
+                              ? 'border-transparent bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                              : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:border-[var(--accent)]'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <form
+                      onSubmit={e => {
+                        e.preventDefault();
+                        if (draftFrom && draftTo) {
+                          setPeriod({ kind: 'custom', from: draftFrom, to: draftTo });
+                          setExpensesShowAllDates(false);
+                          setDatePickerOpen(false);
+                        }
+                      }}
+                      className="grid gap-2 border-t border-[var(--border)] pt-2.5"
+                    >
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="grid gap-1 text-[10.5px] font-medium text-[var(--muted)]">
+                          {t.dateFrom}
+                          <input
+                            type="date"
+                            className="input-field min-h-0 px-2.5 py-1.5 text-xs tabular-nums"
+                            value={draftFrom}
+                            onChange={e => setDraftFrom(e.target.value)}
+                            required
+                          />
+                        </label>
+                        <label className="grid gap-1 text-[10.5px] font-medium text-[var(--muted)]">
+                          {t.dateTo}
+                          <input
+                            type="date"
+                            className="input-field min-h-0 px-2.5 py-1.5 text-xs tabular-nums"
+                            value={draftTo}
+                            onChange={e => setDraftTo(e.target.value)}
+                            required
+                          />
+                        </label>
+                      </div>
+                      <button type="submit" className="btn-primary min-h-0 w-full py-1.5 text-xs">
+                        {t.applyRange}
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+
+              {tab !== 'agent' && (
+                <button
+                  type="button"
+                  onClick={() => setCopilotOpen(v => !v)}
+                  className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium whitespace-nowrap transition ${
+                    copilotOpen
+                      ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                      : 'border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text)] shadow-[var(--pill-shadow)] hover:border-[var(--accent)]'
+                  }`}
+                  title="Ctrl+K / Alt+A"
+                >
+                  <IconSparkles size={13} className={copilotOpen ? 'text-white' : 'text-[var(--accent)]'} />
+                  <span className="hidden sm:inline">AI</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setTab('audit')}
+                title={t.urgentFindings}
+                className="relative flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] shadow-[var(--pill-shadow)] transition hover:border-[var(--border-strong)]"
+              >
+                <IconBell size={15} />
+                {analysis && analysis.findings.length > 0 && (
+                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--surface)]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                title={t.theme}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] shadow-[var(--pill-shadow)] transition hover:border-[var(--border-strong)]"
+              >
+                {theme === 'light' ? <IconMoon size={15} /> : <IconSun size={15} />}
+              </button>
+
+              {/* User Rounded-Square Avatar + Popover Menu */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setUserMenuOpen(v => !v)}
+                  className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-[var(--border-strong)] bg-[var(--cta-bg)] text-xs font-semibold text-[var(--cta-text)] shadow-[var(--pill-shadow)] transition hover:opacity-90"
+                  title={auth.user.name}
+                >
+                  {userInitials}
+                </button>
+
+                {userMenuOpen && (
+                  <div className="card absolute right-0 top-11 z-40 w-60 p-3 shadow-xl">
+                    <div className="border-b border-[var(--border)] pb-2.5">
+                      <div className="truncate text-xs font-semibold text-[var(--text)]">{auth.user.name}</div>
+                      <div className="truncate text-[11px] text-[var(--muted)]">{auth.user.email}</div>
+                    </div>
+
+                    <div className="mt-2.5 flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[11px] font-medium">
+                      {(['ru', 'uz', 'en'] as const).map(code => (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => setLang(code)}
+                          className={`flex-1 rounded-full py-1 uppercase transition ${
+                            lang === code
+                              ? 'bg-[var(--surface)] font-semibold text-[var(--text)] shadow-xs'
+                              : 'text-[var(--muted)]'
+                          }`}
+                        >
+                          {code}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        void handleLogout();
+                      }}
+                      className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-full border border-[var(--bad)]/30 bg-[var(--bad-soft)] py-1.5 text-xs font-medium text-[var(--bad)] transition hover:border-[var(--bad)]"
+                    >
+                      <IconLogOut size={13} />
+                      {t.logout}
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="mt-4">
-            <label className="block px-1 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-              {t.restaurant}
-            </label>
-            <select
-              className="input-field mt-1 text-xs font-bold"
-              value={activeRestaurantId}
-              onChange={e => void handleRestaurantSwitch(e.target.value)}
-            >
-              {auth.restaurants.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <nav className="mt-5 grid gap-1">
+          {/* Responsive Secondary Nav Pills Row (< LG) */}
+          <nav className="no-scrollbar flex items-center gap-1.5 overflow-x-auto pb-2.5 lg:hidden">
             {navItems.map(item => {
               const active = tab === item;
               return (
@@ -716,21 +1110,16 @@ export default function App() {
                   key={item}
                   type="button"
                   onClick={() => setTab(item)}
-                  className={`flex items-center justify-between rounded-xl px-3 py-2.5 text-left text-xs font-bold transition ${
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium whitespace-nowrap transition ${
                     active
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'text-[var(--text)] hover:bg-[var(--surface-2)]'
+                      ? 'border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text)] shadow-[var(--pill-shadow)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'
                   }`}
                 >
-                  <span>{t.nav[item]}</span>
-                  {item === 'audit' && analysis && (
-                    <span className="rounded-full bg-[var(--bad)] px-1.5 py-0.5 text-[10px] font-extrabold text-white tabular-nums">
+                  <span>{topNavShortLabels[item]}</span>
+                  {item === 'audit' && analysis && analysis.findings.length > 0 && (
+                    <span className="rounded-full bg-[var(--bad-soft)] px-1.5 text-[10px] font-semibold text-[var(--bad)] tabular-nums">
                       {analysis.findings.length}
-                    </span>
-                  )}
-                  {item === 'agent' && (
-                    <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[9px] font-extrabold text-white">
-                      AI
                     </span>
                   )}
                 </button>
@@ -738,83 +1127,16 @@ export default function App() {
             })}
           </nav>
         </div>
+      </header>
 
-        <div className="grid gap-2 border-t border-[var(--border)] pt-3">
-          <div className="flex items-center justify-between px-1 text-xs">
-            <span className="font-semibold text-[var(--muted)]">{t.theme}</span>
-            <button
-              type="button"
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="btn-secondary min-h-0 px-2.5 py-1 text-[11px]"
-            >
-              {theme === 'light' ? 'Dark' : 'Light'}
-            </button>
-          </div>
-
-          <div className="flex overflow-hidden rounded-xl border border-[var(--border)] text-[11px] font-bold">
-            {(['ru', 'uz', 'en'] as const).map(code => (
-              <button
-                key={code}
-                type="button"
-                onClick={() => setLang(code)}
-                className={`flex-1 py-1.5 uppercase ${lang === code ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'text-[var(--muted)]'}`}
-              >
-                {code}
-              </button>
-            ))}
-          </div>
-
-          <div className="px-1 pt-1 text-[11px] text-[var(--muted)]">
-            <div className="truncate font-bold text-[var(--text)]">{auth.user.name}</div>
-            <div className="truncate">{auth.user.email}</div>
-          </div>
-
-          <button type="button" onClick={() => void handleLogout()} className="btn-secondary w-full text-xs">
-            {t.logout}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="relative min-w-0 flex-1 overflow-y-auto p-4 pb-24 sm:p-6 sm:pb-20">
-        {/* Compact Mobile Nav Bar */}
-        <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3 md:hidden">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#f8781d] text-xs font-extrabold text-white">
-              U
-            </div>
-            <select
-              className="input-field min-h-0 max-w-[160px] py-1 text-xs font-bold"
-              value={activeRestaurantId}
-              onChange={e => void handleRestaurantSwitch(e.target.value)}
-            >
-              {auth.restaurants.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {navItems.map(item => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setTab(item)}
-                className={`rounded-lg px-2 py-1 text-[11px] font-bold ${
-                  tab === item
-                    ? 'bg-[var(--accent)] text-white'
-                    : 'bg-[var(--surface-2)] text-[var(--muted)]'
-                }`}
-              >
-                {t.nav[item]}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <header className="no-print mb-5 flex flex-wrap items-center justify-between gap-3">
+      {/* Centered Editorial Content Container */}
+      <main className="mx-auto min-w-0 max-w-[1440px] px-4 py-6 pb-12 sm:px-6 lg:px-8">
+        <div className="no-print mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="m-0 text-xl font-extrabold tracking-tight">
-              {activeRestaurant?.name ?? auth.user.restaurantName} · {t.nav[tab]}
+            <h1 className="m-0 text-[22px] font-medium tracking-[-0.02em] text-[var(--text)]">
+              {tab === 'dashboard'
+                ? `${activeRestaurant?.name ?? auth.user.restaurantName} · ${t.nav[tab]}`
+                : `${t.nav[tab]} · ${activeRestaurant?.name ?? auth.user.restaurantName}`}
             </h1>
             <p className="mt-0.5 text-xs text-[var(--muted)]">{t.subtitle}</p>
           </div>
@@ -824,56 +1146,72 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setSelectedDistrictId('')}
-                className="rounded-xl border border-[var(--accent)] bg-[var(--accent-soft)] px-2.5 py-1.5 text-xs font-bold text-[var(--accent)]"
+                className="rounded-full border border-[var(--accent)]/40 bg-[var(--accent-soft)] px-3 py-1 text-xs font-medium text-[var(--accent)]"
               >
                 District: {selectedDistrictId} ✕
               </button>
             )}
 
-            <div className="flex overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] text-xs font-bold">
-              {[
-                [7, t.period7],
-                [30, t.period30],
-                [60, t.period60],
-                [90, t.period90],
-              ].map(([d, label]) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDays(Number(d))}
-                  className={`px-3 py-2 ${days === d ? 'bg-[var(--accent)] text-white' : 'text-[var(--muted)]'}`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-1.5 sm:hidden">
+              <div className="flex items-center rounded-full border border-[var(--border)] bg-[var(--surface)] p-0.5 text-[11px] font-medium">
+                {[7, 30, 60, 90].map(d => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setPeriod({ kind: 'days', days: d });
+                      setExpensesShowAllDates(false);
+                    }}
+                    className={`rounded-full px-2.5 py-1 ${
+                      period.kind === 'days' && period.days === d
+                        ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                        : 'text-[var(--muted)]'
+                    }`}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 text-[11px]">
+                <input
+                  type="date"
+                  aria-label={t.dateFrom}
+                  className="bg-transparent text-[11px] outline-none tabular-nums"
+                  value={from}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      setPeriod({ kind: 'custom', from: val, to: val > to ? val : to });
+                      setExpensesShowAllDates(false);
+                    }
+                  }}
+                />
+                <span className="text-[var(--muted)]">–</span>
+                <input
+                  type="date"
+                  aria-label={t.dateTo}
+                  className="bg-transparent text-[11px] outline-none tabular-nums"
+                  value={to}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      setPeriod({ kind: 'custom', from: val < from ? val : from, to: val });
+                      setExpensesShowAllDates(false);
+                    }
+                  }}
+                />
+              </div>
             </div>
 
-            {tab !== 'agent' && (
-              <button
-                type="button"
-                onClick={() => setCopilotOpen(v => !v)}
-                className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-extrabold transition ${
-                  copilotOpen
-                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                    : 'border-[var(--accent)]/40 bg-[var(--accent-soft)] text-[var(--accent)] hover:border-[var(--accent)]'
-                }`}
-                title="Ctrl+K / Alt+A"
-              >
-                <span>AI Copilot</span>
-                <span className="rounded-md bg-black/10 px-1.5 py-0.5 text-[10px] font-bold">
-                  Ctrl+K
-                </span>
-              </button>
-            )}
-
-            <button type="button" onClick={() => void refreshAll()} className="btn-secondary text-xs">
+            <button type="button" onClick={() => void refreshAll()} className="btn-secondary min-h-0 px-3.5 py-1.5 text-xs">
+              <IconRefresh size={13} />
               {t.refresh}
             </button>
           </div>
-        </header>
+        </div>
 
         {analysisQuery.isError && (
-          <div className="card mb-4 border-[var(--bad)] bg-[var(--bad-soft)] p-4 text-xs font-bold text-[var(--bad)]">
+          <div className="card mb-4 border-[var(--bad)]/50 bg-[var(--bad-soft)] p-4 text-xs font-medium text-[var(--bad)]">
             {analysisQuery.error instanceof Error ? analysisQuery.error.message : 'Failed to load analytics'}
           </div>
         )}
@@ -885,7 +1223,12 @@ export default function App() {
             timeseries={resolvedTimeseries}
             findings={analysis.findings}
             report={aiReportOverride ?? analysis.report}
+            districtGeo={dashboardGeoQuery.data}
             onNavigate={setTab}
+            onOpenExpensesGroup={group => {
+              setExpensesGroupFilter(group);
+              setTab('expenses');
+            }}
             pinnedBlocks={pinnedBlocks}
             onUnpinBlock={handleUnpinBlock}
             onExecuteAction={act => void handleExecuteAgentAction(act)}
@@ -974,6 +1317,17 @@ export default function App() {
           <ExpensesPage
             lang={lang}
             expenses={expensesQuery.data ?? []}
+            loading={expensesQuery.isLoading}
+            from={from}
+            to={to}
+            showAllDates={expensesShowAllDates}
+            onToggleAllDates={setExpensesShowAllDates}
+            onDateRangeChange={(nextFrom, nextTo) => {
+              setPeriod({ kind: 'custom', from: nextFrom, to: nextTo });
+              setExpensesShowAllDates(false);
+            }}
+            groupFilter={expensesGroupFilter}
+            onGroupFilterChange={setExpensesGroupFilter}
             onMutated={refreshAll}
           />
         )}
@@ -987,11 +1341,11 @@ export default function App() {
           />
         )}
 
-        {/* Floating Quick AI Copilot Bar on non-Agent Tabs */}
+        {/* Inline Docked Quick AI Copilot Bar (Non-overlapping below content) */}
         {tab !== 'agent' && !copilotOpen && (
           <form
             onSubmit={handleQuickAskSubmit}
-            className="no-print fixed right-5 bottom-5 z-30 flex w-[calc(100%-2.5rem)] max-w-xl items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl"
+            className="no-print mx-auto mt-6 flex w-full max-w-2xl items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] p-1.5 shadow-[var(--card-shadow)]"
           >
             <button
               type="button"
@@ -1003,33 +1357,33 @@ export default function App() {
                     ? 'Открыть AI Copilot поверх экрана (Ctrl+K / Alt+A)'
                     : 'Open AI Copilot drawer (Ctrl+K / Alt+A)'
               }
-              className="flex shrink-0 items-center gap-1.5 rounded-xl bg-[var(--accent-soft)] px-2.5 py-1.5 text-[11px] font-extrabold text-[var(--accent)] transition hover:brightness-95"
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-[11px] font-medium text-[var(--accent)] transition hover:brightness-95"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
               <span>Gemini 3.8</span>
               {agentTurns.length > 0 && (
-                <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.2 text-[10px] font-extrabold text-white tabular-nums">
+                <span className="rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-white tabular-nums">
                   {agentTurns.length}
                 </span>
               )}
             </button>
             <input
               type="text"
-              className="input-field min-h-0 flex-1 py-1.5 text-xs"
+              className="min-h-0 flex-1 border-0 bg-transparent px-2 py-1.5 text-xs text-[var(--text)] outline-none placeholder:text-[var(--muted-soft)]"
               value={quickAskInput}
               onChange={e => setQuickAskInput(e.target.value)}
               placeholder={
                 lang === 'uz'
                   ? 'AI Copilotdan so‘rang (Ctrl+K) — xarita, byudjet, audit...'
                   : lang === 'ru'
-                    ? 'Спросить AI Copilot прямо здесь (Ctrl+K) — карта, бюджеты, аудит...'
-                    : 'Ask AI Copilot right here (Ctrl+K) — map, budgets, audit...'
+                    ? 'Спросить AI Copilot (Ctrl+K) — карта, бюджеты, аудит...'
+                    : 'Ask AI Copilot (Ctrl+K) — map, budgets, audit...'
               }
             />
             <button
               type="submit"
               disabled={agentBusy}
-              className="btn-primary min-h-0 shrink-0 px-3 py-1.5 text-xs"
+              className="btn-primary min-h-0 shrink-0 px-4 py-1.5 text-xs"
             >
               {agentBusy ? '...' : lang === 'uz' ? 'So‘rash' : lang === 'ru' ? 'Спросить' : 'Ask'}
             </button>

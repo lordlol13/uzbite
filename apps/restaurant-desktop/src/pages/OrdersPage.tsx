@@ -73,7 +73,7 @@ export function OrdersPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Заказы ресторана</h1>
+          <h1 className="m-0 text-xl font-semibold">Заказы ресторана</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Управление принятием, оплатой и доставкой заказов в реальном времени
           </p>
@@ -149,7 +149,7 @@ export function OrdersPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-extrabold tabular-nums">Заказ #{order.id.slice(-6)}</span>
+                      <span className="text-sm font-semibold tabular-nums">Заказ #{order.id.slice(-6)}</span>
                       <StatusPill label={os.label} tone={os.tone} />
                       {ps && (
                         <StatusPill
@@ -169,7 +169,7 @@ export function OrdersPage() {
                   </div>
 
                   <div className="text-right">
-                    <div className="text-lg font-extrabold tabular-nums">
+                    <div className="text-lg font-semibold tabular-nums">
                       {formatMoney(order.total, config.language)}
                     </div>
                     <div className="mt-1 text-[11px] font-semibold text-[var(--muted)]">

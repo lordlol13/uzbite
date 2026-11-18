@@ -49,10 +49,10 @@ export function BudgetsPage({
     <div className="grid gap-5">
       <div className="card flex flex-wrap items-end justify-between gap-4 p-5">
         <div>
-          <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+          <span className="rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
             Case #25 · Real-Time Plan vs Actual & Breach Early Warning
           </span>
-          <h1 className="m-0 mt-1.5 text-base font-extrabold">{t.budgetPlanActual}</h1>
+          <h1 className="m-0 mt-1.5 text-base font-semibold">{t.budgetPlanActual}</h1>
           <label className="mt-2 flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
             {t.month}:
             <input
@@ -104,8 +104,8 @@ export function BudgetsPage({
                     className="h-3 w-3 rounded-full"
                     style={{ backgroundColor: CATEGORY_COLORS[b.category] }}
                   />
-                  <span className="text-sm font-extrabold">{CATEGORY_LABELS[b.category][lang]}</span>
-                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase ${
+                  <span className="text-sm font-semibold">{CATEGORY_LABELS[b.category][lang]}</span>
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase ${
                     b.status === 'OVERRUN'
                       ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
                       : b.status === 'WARNING'
@@ -116,7 +116,7 @@ export function BudgetsPage({
                   </span>
 
                   {v && v.projectedBreachDate && (
-                    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold ${
+                    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
                       v.riskLevel === 'CRITICAL'
                         ? 'bg-[var(--bad-soft)] text-[var(--bad)]'
                         : 'bg-[var(--warn-soft)] text-[var(--warn)]'
@@ -152,14 +152,24 @@ export function BudgetsPage({
                 </div>
               </div>
 
-              <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+              <div className="relative mt-3.5 h-2.5 w-full rounded-full bg-[var(--surface-2)]">
                 <div
-                  className="h-full rounded-full transition-all"
+                  className="animate-slider-grow relative h-full rounded-full transition-all"
                   style={{
-                    width: `${Math.min(100, b.usagePct)}%`,
-                    backgroundColor: barColor,
+                    width: `${Math.max(3, Math.min(100, b.usagePct))}%`,
+                    background:
+                      b.status === 'OVERRUN'
+                        ? 'linear-gradient(90deg, #fca5a5 0%, #d54c4f 100%)'
+                        : b.status === 'WARNING'
+                          ? 'linear-gradient(90deg, #fcd34d 0%, #ff8a47 100%)'
+                          : 'linear-gradient(90deg, #8be4cf 0%, #36b89a 100%)',
                   }}
-                />
+                >
+                  <span
+                    className="absolute right-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 translate-x-1/2 rounded-full bg-[var(--surface)] shadow-sm"
+                    style={{ border: `2.5px solid ${barColor}` }}
+                  />
+                </div>
               </div>
 
               {v && (

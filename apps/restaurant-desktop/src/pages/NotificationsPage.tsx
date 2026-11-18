@@ -27,7 +27,7 @@ export function NotificationsPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Уведомления ресторана</h1>
+          <h1 className="m-0 text-xl font-semibold">Уведомления ресторана</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Все события заказов, оплат, курьеров, отзывов и подписок сохраняются в PostgreSQL.
           </p>
@@ -60,7 +60,7 @@ export function NotificationsPage() {
               }`}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-extrabold">{item.title}</div>
+                <div className="text-xs font-semibold">{item.title}</div>
                 <div className="flex items-center gap-2">
                   {!item.readAt && <StatusPill label="Новое" tone="accent" />}
                   <span className="text-[11px] text-[var(--muted)] tabular-nums">

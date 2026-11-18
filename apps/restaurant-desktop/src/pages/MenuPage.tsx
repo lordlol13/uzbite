@@ -221,7 +221,7 @@ export function MenuPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="m-0 text-xl font-extrabold">Меню ресторана</h1>
+          <h1 className="m-0 text-xl font-semibold">Меню ресторана</h1>
           <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
             Редактор блюд, цен, доступности и массовый импорт/экспорт Excel и CSV
           </p>
@@ -323,8 +323,8 @@ export function MenuPage() {
                 </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className="m-0 text-sm font-extrabold">{dish.name}</h3>
-                    <span className="shrink-0 text-sm font-extrabold text-[var(--accent)] tabular-nums">
+                    <h3 className="m-0 text-sm font-semibold">{dish.name}</h3>
+                    <span className="shrink-0 text-sm font-semibold text-[var(--accent)] tabular-nums">
                       {formatMoney(dish.price, config.language)}
                     </span>
                   </div>

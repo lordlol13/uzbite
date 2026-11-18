@@ -95,8 +95,9 @@ export function AuthPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg)] p-6">
-      <div className="card w-full max-w-md p-7 shadow-lg">
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[var(--bg)] p-6">
+      <div className="ai-grid-backdrop pointer-events-none absolute inset-x-0 top-0 h-72" />
+      <div className="card relative z-10 w-full max-w-md p-8">
         <div className="flex items-center justify-between">
           <Wordmark withIcon subtitle="Windows Desktop" />
           <button
@@ -118,7 +119,7 @@ export function AuthPage() {
             <span className="mt-1">Покупатель</span>
             <span className="text-[9px]">Мобильный</span>
           </div>
-          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-[var(--accent)] bg-[var(--accent-soft)] p-2.5 text-[11px] font-extrabold text-[var(--accent)]">
+          <div className="flex flex-col items-center justify-center rounded-xl border-2 border-[var(--accent)] bg-[var(--accent-soft)] p-2.5 text-[11px] font-semibold text-[var(--accent)]">
             <Icon name="restaurant" size={18} />
             <span className="mt-1">Ресторан</span>
             <span className="text-[9px]">Активен</span>
@@ -130,7 +131,7 @@ export function AuthPage() {
           </div>
         </div>
 
-        <h1 className="mt-5 mb-1 text-xl font-extrabold">
+        <h1 className="mt-5 mb-1 text-[22px] font-medium tracking-[-0.02em]">
           {mode === 'login' ? 'Вход в аккаунт ресторана' : 'Регистрация ресторана'}
         </h1>
         <p className="mt-0 mb-4 text-xs text-[var(--muted)]">

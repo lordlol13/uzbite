@@ -18,35 +18,38 @@ type ContextPromptMap = Record<NavTab, Record<Language, string[]>>;
 const SCREEN_PROMPTS: ContextPromptMap = {
   dashboard: {
     ru: [
+      'Расходы за 15 ноября',
+      'Налоги и электричество за прошлую неделю',
+      'Базовые и доп. расходы за прошлую неделю',
       'Что сейчас на моём экране и какие главные выводы?',
-      'Создай кастомный дашборд по коммунальным и аренде',
-      'Какие главные риски и потенциал экономии за период?',
     ],
     uz: [
+      '15-noyabr xarajatlari',
+      'O‘tgan haftadagi soliq va elektr xarajatlari',
+      'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar',
       'Hozirgi ekranda nimalar ko‘rinib turibdi va asosiy xulosa nima?',
-      'Kommunal va ijara bo‘yicha maxsus dashboard yarat',
-      'Asosiy moliyaviy xavflar va tejamkorlik salohiyati qancha?',
     ],
     en: [
+      'Expenses on November 15',
+      'Taxes & electricity for last week',
+      'Base vs additional expenses for last week',
       'What is on my current screen and what are the top takeaways?',
-      'Create a custom dashboard for utilities and rent costs',
-      'What are the top financial risks and savings opportunities?',
     ],
   },
   audit: {
     ru: [
+      'Налоги и электричество за прошлую неделю',
       'Найди ошибки учёта, дубликаты и способы сократить расходы',
-      'Какие статьи расходов выросли аномально и как их исправить?',
       'Сколько можно сэкономить на свете, связи и поставщиках?',
     ],
     uz: [
+      'O‘tgan haftadagi soliq va elektr xarajatlari',
       'Hisob xatolari, dublikatlar va xarajatlarni qisqartirish yo‘llarini top',
-      'Qaysi xarajatlar keskin oshgan va qanday tuzatish kerak?',
       'Elektr, aloqa va yetkazib beruvchilardan qancha tejash mumkin?',
     ],
     en: [
+      'Taxes & electricity for last week',
       'Find accounting errors, duplicates, and ways to cut costs',
-      'Which expense anomalies should I fix first?',
       'How much can we save on utilities, telecom, and suppliers?',
     ],
   },
@@ -103,19 +106,22 @@ const SCREEN_PROMPTS: ContextPromptMap = {
   },
   expenses: {
     ru: [
+      'Расходы за 15 ноября',
+      'Налоги и электричество за прошлую неделю',
+      'Базовые и доп. расходы за прошлую неделю',
       'Найди дубликаты накладных и несоответствия сумм в расходах',
-      'Разбери структуру операционных расходов и главные драйверы роста',
-      'Где можно быстро сократить административные и коммунальные траты?',
     ],
     uz: [
+      '15-noyabr xarajatlari',
+      'O‘tgan haftadagi soliq va elektr xarajatlari',
+      'O‘tgan haftadagi asosiy va qo‘shimcha xarajatlar',
       'Xarajatlarda dublikat fakturalar va summa xatolarini top',
-      'Operatsion xarajatlar tarkibi va o‘sish sabablarini tahlil qil',
-      'Kommunal va ma’muriy xarajatlarni qayerda tez qisqartirish mumkin?',
     ],
     en: [
+      'Expenses on November 15',
+      'Taxes & electricity for last week',
+      'Base vs additional expenses for last week',
       'Find duplicate invoices and amount mismatches in expenses',
-      'Break down operating expense structure and cost drivers',
-      'Where can we quickly cut utility and administrative spend?',
     ],
   },
   sales: {
@@ -254,14 +260,14 @@ export function AiCopilotDrawer({
         {/* Header */}
         <div className="flex flex-col gap-2.5 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-xs font-extrabold text-white">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="ai-pink-orb animate-orb-breathe flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white">
                 AI
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-sm font-extrabold tracking-tight">AI Copilot</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+                  <span className="text-sm font-semibold tracking-tight">AI Copilot</span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--accent)]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                     {activeModelInfo.displayName}
                   </span>
@@ -297,7 +303,7 @@ export function AiCopilotDrawer({
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="btn-secondary min-h-0 px-2.5 py-1.5 text-xs font-extrabold"
+                className="btn-secondary min-h-0 px-2.5 py-1.5 text-xs font-semibold"
               >
                 ✕
               </button>
@@ -307,7 +313,7 @@ export function AiCopilotDrawer({
           {/* Active Screen Context + Model Selector */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 text-[11px]">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-extrabold text-[var(--accent)]">
+              <span className="rounded-md bg-[var(--surface)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
                 {lang === 'uz' ? 'Ekran' : lang === 'ru' ? 'Экран' : 'Screen'}: {tabLabel}
               </span>
               <span className="truncate font-bold text-[var(--text)]">{restaurantName}</span>
@@ -326,7 +332,7 @@ export function AiCopilotDrawer({
               value={selectedModel}
               disabled={busy}
               onChange={e => onSelectModel(e.target.value)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-extrabold text-[var(--text)] outline-none"
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-semibold text-[var(--text)] outline-none"
             >
               {models.map(m => (
                 <option key={m.id} value={m.id}>
@@ -355,7 +361,7 @@ export function AiCopilotDrawer({
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {/* Context Quick Prompts */}
           <div className="mb-3">
-            <div className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-[var(--muted)]">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
               {lang === 'uz'
                 ? 'Ushbu ekran bo‘yicha tezkor savollar'
                 : lang === 'ru'
@@ -381,7 +387,7 @@ export function AiCopilotDrawer({
           <div className="grid gap-3">
             {turns.length === 0 && (
               <div className="card p-5 text-center text-xs text-[var(--muted)]">
-                <div className="font-extrabold text-[var(--text)]">
+                <div className="font-semibold text-[var(--text)]">
                   {lang === 'uz'
                     ? `${activeModelInfo.displayName} tayyor`
                     : lang === 'ru'
@@ -414,7 +420,7 @@ export function AiCopilotDrawer({
                 <div key={turn.id} className="card grid gap-2.5 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-1.5">
                     <div className="flex flex-wrap items-center gap-1">
-                      <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-extrabold text-[var(--text)]">
+                      <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text)]">
                         {resp?.source === 'coarena' ? `Coarena · ${resp.model}` : 'Deterministic Fallback'}
                       </span>
                       {turn.latencyMs !== undefined && (

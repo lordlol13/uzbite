@@ -68,7 +68,7 @@ export function CategoriesPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
-        <h1 className="m-0 text-xl font-extrabold">Категории меню</h1>
+        <h1 className="m-0 text-xl font-semibold">Категории меню</h1>
         <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
           Системный фильтр «Все» всегда присутствует в приложении покупателя и не может быть удалён.
         </p>
@@ -95,7 +95,7 @@ export function CategoriesPage() {
 
       <div className="card divide-y divide-[var(--border)]">
         <div className="flex items-center justify-between bg-[var(--surface-2)] px-4 py-3 text-xs">
-          <span className="font-extrabold">Все (общий фильтр)</span>
+          <span className="font-semibold">Все (общий фильтр)</span>
           <StatusPill label="Системная · нельзя удалить" tone="accent" />
         </div>
 

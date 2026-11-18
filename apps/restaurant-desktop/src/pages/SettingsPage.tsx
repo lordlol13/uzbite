@@ -100,7 +100,7 @@ export function SettingsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="m-0 text-xl font-extrabold">Настройки ресторана и подключения</h1>
+        <h1 className="m-0 text-xl font-semibold">Настройки ресторана и подключения</h1>
         <p className="mt-0.5 mb-0 text-xs text-[var(--muted)]">
           Способы доставки, реквизиты оплаты, график работы, приём заказов и адрес сервера Backend
         </p>
@@ -112,7 +112,7 @@ export function SettingsPage() {
       )}
 
       <div className="card space-y-4 p-5">
-        <h2 className="m-0 text-sm font-extrabold">Настройки → Доставка</h2>
+        <h2 className="m-0 text-sm font-semibold">Настройки → Доставка</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] p-3 text-xs font-bold">
             <input
@@ -172,7 +172,7 @@ export function SettingsPage() {
       </div>
 
       <div className="card space-y-4 p-5">
-        <h2 className="m-0 text-sm font-extrabold">Способы оплаты</h2>
+        <h2 className="m-0 text-sm font-semibold">Способы оплаты</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex items-center gap-2.5 rounded-xl border border-[var(--border)] p-3 text-xs font-bold">
             <input type="checkbox" checked={acceptCash} onChange={e => setAcceptCash(e.target.checked)} />
@@ -221,7 +221,7 @@ export function SettingsPage() {
 
       <div className="card space-y-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0 text-sm font-extrabold">График работы и приём заказов</h2>
+          <h2 className="m-0 text-sm font-semibold">График работы и приём заказов</h2>
           <div className="flex flex-wrap items-center gap-3">
             <select
               className="input-field min-h-0 w-auto py-1.5 text-xs"
@@ -231,7 +231,7 @@ export function SettingsPage() {
               <option value="Asia/Tashkent">Asia/Tashkent (UTC+5)</option>
               <option value="Asia/Samarkand">Asia/Samarkand (UTC+5)</option>
             </select>
-            <label className="flex items-center gap-2 text-xs font-extrabold">
+            <label className="flex items-center gap-2 text-xs font-semibold">
               <input
                 type="checkbox"
                 checked={acceptingOrders}
@@ -306,7 +306,7 @@ export function SettingsPage() {
       </div>
 
       <div className="card space-y-3 p-5">
-        <h2 className="m-0 text-sm font-extrabold">Подключение к серверу (LAN / Production)</h2>
+        <h2 className="m-0 text-sm font-semibold">Подключение к серверу (LAN / Production)</h2>
         <p className="m-0 text-xs text-[var(--muted)]">
           Измените адрес общего Backend без пересборки программы (например, LAN IP{' '}
           <code>http://192.168.1.100:8081</code> или облачный домен <code>https://api.example.com</code>).
