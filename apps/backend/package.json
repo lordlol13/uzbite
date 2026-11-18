@@ -1,0 +1,14 @@
+{
+  "name": "@uzbite/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "start": "node dist/index.js",
+    "order:status": "tsx src/scripts/order-status.ts"
+  }
+}
