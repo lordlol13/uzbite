@@ -787,7 +787,7 @@ businessRouter.get('/analysis', async (req, res) => {
   res.json({ data: analysis });
 });
 
-businessRouter.post('/analysis/ai-summary', async (req, res) => {
+async function handleAiSummary(req: Request, res: import('express').Response) {
   const { restaurant } = await resolveBusinessContext(req);
   const { from, to } = rangeQuerySchema.parse(req.body ?? {});
   const analysis = await runRestaurantAnalysis(restaurant.id, from, to);
@@ -796,6 +796,8 @@ businessRouter.post('/analysis/ai-summary', async (req, res) => {
     .update(
       JSON.stringify({
         restaurantId: restaurant.id,
+        from: analysis.overview.period.from,
+        to: analysis.overview.period.to,
         revenue: analysis.overview.revenue,
         expenses: analysis.overview.totalExpenses,
         findings: analysis.findings.map(f => [f.id, f.amountImpact]),
@@ -828,7 +830,10 @@ businessRouter.post('/analysis/ai-summary', async (req, res) => {
   }
 
   res.json({ data: { report } });
-});
+}
+
+businessRouter.post('/analysis/ai-summary', handleAiSummary);
+businessRouter.post('/ai-optimize', handleAiSummary);
 
 const askSchema = z.object({
   question: z.string().trim().min(2).max(500),
@@ -985,11 +990,13 @@ const mcpToolCallSchema = z.object({
 }).strict();
 
 businessRouter.post('/agent/tools/call', async (req, res) => {
-  const { restaurant } = await resolveBusinessContext(req);
+  const { restaurant, restaurants } = await resolveBusinessContext(req);
   const input = mcpToolCallSchema.parse(req.body);
   const parsed = input.period ? parseDatePeriodFromQuestion(input.period) : null;
+  const argRestId = typeof input.arguments?.restaurantId === 'string' ? input.arguments.restaurantId.trim() : '';
+  const targetRestaurant = argRestId ? restaurants.find(r => r.id === argRestId) : undefined;
   const result = await executeMcpTool(input.name, input.arguments ?? {}, {
-    restaurantId: restaurant.id,
+    restaurantId: targetRestaurant?.id ?? restaurant.id,
     from: parsed?.from ?? input.from,
     to: parsed?.to ?? input.to,
     month: parsed?.month ?? input.month,
@@ -1013,7 +1020,6 @@ const agentChatSchema = z.object({
     days: z.number(),
     month: z.string(),
     districtId: z.string().optional(),
-    restaurantRoute: z.string().trim().max(200).optional(),
     visibleWidgets: z.array(z.string()).optional(),
     summaryText: z.string().max(2000).optional(),
     activeCustomDashboardId: z.string().nullable().optional(),
@@ -1034,7 +1040,10 @@ const agentChatSchema = z.object({
   to: z.string().optional(),
   month: z.string().optional(),
   totalBudget: z.number().positive().optional(),
-  districtId: z.enum(TASHKENT_DISTRICT_IDS).optional(),
+  districtId: z
+    .union([z.enum(TASHKENT_DISTRICT_IDS), z.literal('')])
+    .optional()
+    .transform(v => (v ? v : undefined)),
 }).strict();
 
 businessRouter.post('/agent/chat', async (req, res) => {

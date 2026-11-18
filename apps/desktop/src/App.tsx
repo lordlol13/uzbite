@@ -158,7 +158,7 @@ export default function App() {
   const [agentStatusBanner, setAgentStatusBanner] = useState<string | null>(null);
   const [selectedAgentModel, setSelectedAgentModel] = useState<string>(DEFAULT_AGENT_MODEL);
   const agentTurnsRef = useRef<AgentChatTurn[]>([]);
-  const agentInputRef = useRef<HTMLInputElement | null>(null);
+  const agentInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     agentTurnsRef.current = agentTurns;
@@ -173,8 +173,9 @@ export default function App() {
   useEffect(() => {
     if (!auth) return;
     function onKeyDown(e: KeyboardEvent) {
-      const isCtrlK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k';
-      const isAltA = e.altKey && e.key.toLowerCase() === 'a';
+      const key = e.key.toLowerCase();
+      const isCtrlK = (e.ctrlKey || e.metaKey) && (key === 'k' || e.code === 'KeyK');
+      const isAltA = e.altKey && (key === 'a' || e.code === 'KeyA');
       if (isCtrlK || isAltA) {
         e.preventDefault();
         if (tab === 'agent') {
@@ -185,6 +186,7 @@ export default function App() {
         return;
       }
       if (e.key === 'Escape' && copilotOpen) {
+        e.preventDefault();
         setCopilotOpen(false);
       }
     }
@@ -286,6 +288,10 @@ export default function App() {
   const availableAgentModels = useMemo(
     () => normalizeAgentModels(agentModelsQuery.data),
     [agentModelsQuery.data],
+  );
+  const activeAgentModelInfo = useMemo(
+    () => availableAgentModels.find(m => m.id === selectedAgentModel) ?? availableAgentModels[0],
+    [availableAgentModels, selectedAgentModel],
   );
 
   async function refreshAll() {
@@ -750,6 +756,9 @@ export default function App() {
       setQuickAskInput('');
       void askAgentQuestion(text);
     }
+    setTimeout(() => {
+      agentInputRef.current?.focus();
+    }, 60);
   }
 
   async function handleRunDashboardAiCommand(prompt: string) {
@@ -1246,7 +1255,7 @@ export default function App() {
           />
         )}
 
-        <div className={tab === 'agent' ? 'block' : 'hidden'}>
+        <div className={tab === 'agent' ? 'animate-page-enter block' : 'hidden'}>
           <AgentPage
             lang={lang}
             restaurantName={activeRestaurant?.name ?? auth.user.restaurantName}
@@ -1267,85 +1276,89 @@ export default function App() {
           />
         </div>
 
-        {tab === 'audit' && analysis && (
-          <AuditPage
-            lang={lang}
-            from={from}
-            to={to}
-            analysis={analysis}
-            aiReportOverride={aiReportOverride}
-            onAiReport={setAiReportOverride}
-            onMutated={refreshAll}
-          />
-        )}
+        {tab !== 'dashboard' && tab !== 'agent' && (
+          <div key={tab} className="animate-page-enter">
+            {tab === 'audit' && analysis && (
+              <AuditPage
+                lang={lang}
+                from={from}
+                to={to}
+                analysis={analysis}
+                aiReportOverride={aiReportOverride}
+                onAiReport={setAiReportOverride}
+                onMutated={refreshAll}
+              />
+            )}
 
-        {tab === 'budgets' && (
-          <BudgetsPage
-            lang={lang}
-            restaurantId={activeRestaurantId}
-            month={month}
-            onMonthChange={setMonth}
-            budgets={resolvedBudgets}
-            onMutated={refreshAll}
-          />
-        )}
+            {tab === 'budgets' && (
+              <BudgetsPage
+                lang={lang}
+                restaurantId={activeRestaurantId}
+                month={month}
+                onMonthChange={setMonth}
+                budgets={resolvedBudgets}
+                onMutated={refreshAll}
+              />
+            )}
 
-        {tab === 'branches' && (
-          <BranchesPage
-            lang={lang}
-            month={month}
-            onMonthChange={setMonth}
-            onMutated={refreshAll}
-          />
-        )}
+            {tab === 'branches' && (
+              <BranchesPage
+                lang={lang}
+                month={month}
+                onMonthChange={setMonth}
+                onMutated={refreshAll}
+              />
+            )}
 
-        {tab === 'map' && (
-          <MapPage
-            lang={lang}
-            from={from}
-            to={to}
-            selectedDistrictId={selectedDistrictId}
-            onSelectDistrict={setSelectedDistrictId}
-            onAskAgentAboutDistrict={prompt => {
-              setCopilotOpen(true);
-              void askAgentQuestion(prompt);
-            }}
-          />
-        )}
+            {tab === 'map' && (
+              <MapPage
+                lang={lang}
+                from={from}
+                to={to}
+                selectedDistrictId={selectedDistrictId}
+                onSelectDistrict={setSelectedDistrictId}
+                onAskAgentAboutDistrict={prompt => {
+                  setCopilotOpen(true);
+                  void askAgentQuestion(prompt);
+                }}
+              />
+            )}
 
-        {tab === 'expenses' && (
-          <ExpensesPage
-            lang={lang}
-            expenses={expensesQuery.data ?? []}
-            loading={expensesQuery.isLoading}
-            from={from}
-            to={to}
-            showAllDates={expensesShowAllDates}
-            onToggleAllDates={setExpensesShowAllDates}
-            onDateRangeChange={(nextFrom, nextTo) => {
-              setPeriod({ kind: 'custom', from: nextFrom, to: nextTo });
-              setExpensesShowAllDates(false);
-            }}
-            groupFilter={expensesGroupFilter}
-            onGroupFilterChange={setExpensesGroupFilter}
-            onMutated={refreshAll}
-          />
-        )}
+            {tab === 'expenses' && (
+              <ExpensesPage
+                lang={lang}
+                expenses={expensesQuery.data ?? []}
+                loading={expensesQuery.isLoading}
+                from={from}
+                to={to}
+                showAllDates={expensesShowAllDates}
+                onToggleAllDates={setExpensesShowAllDates}
+                onDateRangeChange={(nextFrom, nextTo) => {
+                  setPeriod({ kind: 'custom', from: nextFrom, to: nextTo });
+                  setExpensesShowAllDates(false);
+                }}
+                groupFilter={expensesGroupFilter}
+                onGroupFilterChange={setExpensesGroupFilter}
+                onMutated={refreshAll}
+              />
+            )}
 
-        {tab === 'sales' && (
-          <SalesPage
-            lang={lang}
-            dishes={resolvedDishes}
-            heatmap={resolvedHeatmap}
-            onMutated={refreshAll}
-          />
+            {tab === 'sales' && (
+              <SalesPage
+                lang={lang}
+                dishes={resolvedDishes}
+                heatmap={resolvedHeatmap}
+                onMutated={refreshAll}
+              />
+            )}
+          </div>
         )}
 
         {/* Inline Docked Quick AI Copilot Bar (Non-overlapping below content) */}
         {tab !== 'agent' && !copilotOpen && (
           <form
             onSubmit={handleQuickAskSubmit}
-            className="no-print mx-auto mt-6 flex w-full max-w-2xl items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] p-1.5 shadow-[var(--card-shadow)]"
+            className="no-print mx-auto mt-6 flex w-full max-w-2xl items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] p-1.5 shadow-[var(--card-shadow)] transition-colors focus-within:border-[var(--accent)]/60"
           >
             <button
               type="button"
@@ -1360,7 +1373,7 @@ export default function App() {
               className="flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-[11px] font-medium text-[var(--accent)] transition hover:brightness-95"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
-              <span>Gemini 3.8</span>
+              <span>{activeAgentModelInfo?.displayName ?? selectedAgentModel}</span>
               {agentTurns.length > 0 && (
                 <span className="rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold text-white tabular-nums">
                   {agentTurns.length}
@@ -1412,6 +1425,9 @@ export default function App() {
             onExpandToAgent={() => {
               setCopilotOpen(false);
               setTab('agent');
+              setTimeout(() => {
+                agentInputRef.current?.focus();
+              }, 60);
             }}
             lang={lang}
             restaurantName={activeRestaurant?.name ?? auth.user.restaurantName}
@@ -1423,6 +1439,7 @@ export default function App() {
             selectedModel={selectedAgentModel}
             onSelectModel={setSelectedAgentModel}
             models={availableAgentModels}
+            modelsConfigured={agentModelsQuery.data?.configured}
             onAskQuestion={askAgentQuestion}
             onClearConversation={clearAgentConversation}
             onRateTurn={rateAgentTurn}

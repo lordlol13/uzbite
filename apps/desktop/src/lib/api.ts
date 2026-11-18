@@ -22,6 +22,7 @@ import type {
   McpToolDescriptor,
   OcrExpenseDraft,
   SupplierDto,
+  TashkentDistrictId,
   TimeseriesPoint,
 } from '@uzbite/shared';
 
@@ -174,6 +175,9 @@ export async function businessRequest<T>(
   if (!res.ok) {
     const errPayload = res.payload as { error?: { message?: string; code?: string } } | null;
     throw new Error(errPayload?.error?.message ?? `Request failed (${res.status})`);
+  }
+  if (!res.payload || typeof res.payload !== 'object' || !('data' in res.payload)) {
+    throw new Error('Invalid API response payload');
   }
   return (res.payload as { data: T }).data;
 }
@@ -436,6 +440,7 @@ export function sendAgentChat(payload: {
   to?: string;
   month?: string;
   totalBudget?: number;
+  districtId?: TashkentDistrictId;
 }) {
   return businessRequest<AgentChatResponse>('POST', '/business/agent/chat', {
     ...payload,
@@ -464,8 +469,9 @@ export function loadPinnedWidgets(restaurantId: string): AgentUiBlock[] {
 
 export function savePinnedWidget(restaurantId: string, block: AgentUiBlock): AgentUiBlock[] {
   const current = loadPinnedWidgets(restaurantId);
-  const deduped = current.filter(b => b.id !== block.id);
-  const next = [{ ...block, id: `${block.id}-${Date.now()}` }, ...deduped].slice(0, 6);
+  const baseId = block.id.replace(/-\d{10,}$/, '');
+  const deduped = current.filter(b => b.id !== block.id && !b.id.startsWith(`${baseId}-`));
+  const next = [{ ...block, id: `${baseId}-${Date.now()}` }, ...deduped].slice(0, 6);
   localStorage.setItem(`${PINNED_WIDGETS_PREFIX}${restaurantId || 'default'}`, JSON.stringify(next));
   return next;
 }

@@ -133,7 +133,7 @@ The exact same Point 24 / 25 / 26 engine applies without mathematical changes to
 
 ### 2.4 Tashkent 12-District Geospatial Analytics
 
-Implemented in `apps/backend/src/services/geo-districts.ts` and `packages/shared/src/tashkent-geo.ts`:
+Implemented in `apps/backend/src/services/geo-districts.ts` and `packages/shared/src/index.ts`:
 
 - **12 Official Tashkent Districts**: `olmazor`, `yunusobod`, `mirzo_ulugbek`, `shayxontohur`, `uchtepa`, `chilonzor`, `yakkasaroy`, `mirobod`, `yashnobod`, `sergeli`, `yangihayot`, `bektemir`.
 - **Hybrid District Resolution (`resolveTashkentDistrict`)**: Matches district names in order address text, then executes ray-casting `pointInPolygon` against Tashkent district polygons, with Haversine nearest-center fallback.

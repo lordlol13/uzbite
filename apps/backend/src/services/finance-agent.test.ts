@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { env } from '../config/env.js';
-import { callCoarenaChat, extractJsonFromText, submitCoarenaFeedback } from './coarena.js';
+import { callCoarenaChat, extractJsonFromText, listCoarenaModels, submitCoarenaFeedback } from './coarena.js';
 import type { BusinessAnalysisResponse, DistrictStatItem } from '@uzbite/shared';
 import {
   MCP_TOOLS,
   buildBudgetVarianceList,
   buildCustomDashboardSpec,
+  buildDeterministicAgentAnswer,
   detectQuestionIntents,
   extractNumbersFromText,
   parseScenarioAssumptions,
+  resolveConversationalIntents,
   solveBranchBudgetAllocation,
   verifyLlmNumbersAgainstGroundTruth,
 } from './finance-agent.js';
+import { parseDatePeriodFromQuestion } from './date-period-parser.js';
 import {
   aggregateOrderHeatmapCells,
   rankGrowthDistrictOpportunities,
@@ -637,4 +640,202 @@ test('MCP_TOOLS exposes all 4 geo tools and rankGrowthDistrictOpportunities prio
   assert.equal(opportunities[0]!.districtId, 'sergeli');
   assert.equal(opportunities[0]!.recommendedAction, 'OPEN_BRANCH_OR_HUB');
   assert.ok(opportunities[0]!.opportunityScore > opportunities[1]!.opportunityScore);
+});
+
+test('detectQuestionIntents handles dates 24/25/26, dual-quote rename, EN/UZ select_dashboard, list dashboards, and YYYY-MM periods', () => {
+  const now = new Date('2026-11-18T10:00:00.000Z');
+  const nov24 = detectQuestionIntents('Расходы за 24 ноября', now);
+  assert.equal(nov24.isBranchAlloc, false);
+  assert.equal(nov24.parsedPeriod?.from, '2026-11-24');
+
+  const oct25 = detectQuestionIntents('Налоги за 25 октября', now);
+  assert.equal(oct25.isBudget, false);
+  assert.equal(oct25.parsedPeriod?.from, '2026-10-25');
+
+  const casualIf = detectQuestionIntents('Если посмотреть расходы за 15 ноября', now);
+  assert.equal(casualIf.isWhatIf, false);
+  assert.equal(casualIf.parsedPeriod?.from, '2026-11-15');
+
+  const renameDual = detectQuestionIntents('Переименуй дашборд «Налоги» в «Налоги Q4»', now);
+  assert.equal(renameDual.isRenameDashboard, true);
+  assert.equal(renameDual.requestedDashboardTitle, 'Налоги Q4');
+
+  const selEn = detectQuestionIntents('Open custom dashboard', now);
+  assert.equal(selEn.isSelectCustomDashboard, true);
+
+  const selUz = detectQuestionIntents('Maxsus dashboardni och', now);
+  assert.equal(selUz.isSelectCustomDashboard, true);
+
+  const listDash = detectQuestionIntents('Какие у меня есть кастомные дашборды?', now);
+  assert.equal(listDash.isListDashboards, true);
+
+  const ym = parseDatePeriodFromQuestion('Бюджет за 2026-10', now);
+  assert.ok(ym);
+  assert.equal(ym.from, '2026-10-01');
+  assert.equal(ym.to, '2026-10-31');
+  assert.equal(ym.month, '2026-10');
+});
+
+test('resolveConversationalIntents inherits topic, period, branch, and district across multi-turn history', () => {
+  const now = new Date('2026-11-18T10:00:00.000Z');
+
+  const dashFollowUp = resolveConversationalIntents(
+    'Создай из этого дашборд',
+    [
+      { role: 'user', content: 'Покажи бюджеты за 2026-10' },
+      { role: 'assistant', content: 'Бюджеты за октябрь готовы.' },
+    ],
+    now,
+  );
+  assert.equal(dashFollowUp.isCreateDashboard, true);
+  assert.equal(dashFollowUp.isBudget, true);
+  assert.equal(dashFollowUp.parsedPeriod?.month, '2026-10');
+
+  const auditFollowUp = resolveConversationalIntents(
+    'А какие там ошибки?',
+    [
+      { role: 'user', content: 'Покажи заказы Basilico в районе Чиланзар' },
+      { role: 'assistant', content: 'Заказы в районе Чиланзар загружены.' },
+    ],
+    now,
+  );
+  assert.equal(auditFollowUp.isAudit, true);
+  assert.equal(auditFollowUp.requestedRestaurantId, 'rest-basilico');
+  assert.equal(auditFollowUp.requestedDistrict, 'chilonzor');
+
+  const pinFollowUp = resolveConversationalIntents(
+    'Закрепи это на главном дашборде',
+    [
+      { role: 'user', content: 'Покажи топ блюд по продажам' },
+      { role: 'assistant', content: 'Топ блюд готов.' },
+    ],
+    now,
+  );
+  assert.equal(pinFollowUp.isPinWidget, true);
+  assert.equal(pinFollowUp.isSales, true);
+});
+
+test('buildDeterministicAgentAnswer formats RU/UZ/EN sales & menu engineering summaries', () => {
+  const analysis: BusinessAnalysisResponse = {
+    overview: {
+      period: { from: '2026-11-11T00:00:00.000Z', to: '2026-11-18T23:59:59.999Z', days: 8 },
+      revenue: 28_000_000,
+      revenuePrev: 24_000_000,
+      revenueDeltaPct: 16.7,
+      deliveredOrders: 140,
+      deliveredOrdersPrev: 120,
+      ordersDeltaPct: 16.7,
+      cancelledOrders: 4,
+      cancelRatePct: 2.8,
+      lostRevenue: 600_000,
+      avgOrderValue: 200_000,
+      avgOrderValuePrev: 200_000,
+      totalExpenses: 17_000_000,
+      totalExpensesPrev: 15_000_000,
+      expensesDeltaPct: 13.3,
+      TheoreticalCogs: 8_400_000,
+      foodCostPct: 30.0,
+      laborCostPct: 18.0,
+      adminUtilityCostPct: 8.0,
+      grossProfit: 19_600_000,
+      netProfit: 11_000_000,
+      netProfitPrev: 9_000_000,
+      netMarginPct: 39.3,
+      avgRating: 4.9,
+      reviewCount: 30,
+      paymentSplit: {
+        cashOrders: 70,
+        cardOrders: 70,
+        cashRevenue: 14_000_000,
+        cardRevenue: 14_000_000,
+        unpaidCardOrders: 0,
+        unpaidCardAmount: 0,
+      },
+      categoryBreakdown: [],
+    },
+    findings: [],
+    report: {
+      generatedAt: '2026-11-18T10:00:00.000Z',
+      source: 'heuristic',
+      healthScore: 92,
+      statusLabel: { ru: 'Отлично', uz: 'A’lo', en: 'Healthy' },
+      executiveSummary: { ru: 'Ок', uz: 'Ok', en: 'Ok' },
+      totalPotentialSavingUZS: 0,
+      errorCount: 0,
+      inefficiencyCount: 0,
+      riskCount: 0,
+      recommendations: [],
+    },
+    dishes: [
+      {
+        dishId: 'd1',
+        name: 'Плов праздничный',
+        categoryName: 'Основные',
+        price: 65_000,
+        costPrice: 22_000,
+        unitMargin: 43_000,
+        marginPct: 66.2,
+        quantitySold: 210,
+        revenue: 13_650_000,
+        totalCost: 4_620_000,
+        totalProfit: 9_030_000,
+        revenueSharePct: 48.8,
+        abcClass: 'A',
+        quadrant: 'STAR',
+      },
+    ],
+  };
+
+  const ans = buildDeterministicAgentAnswer({
+    lang: 'ru',
+    restaurantName: 'Osh & Olov',
+    analysis,
+    fromStr: '2026-11-11',
+    toStr: '2026-11-18',
+    isSales: true,
+    geoData: null,
+    varianceData: null,
+    branchData: null,
+    scenarioData: null,
+  });
+  assert.ok(ans.ru.includes('Плов праздничный'));
+  assert.ok(ans.uz.includes('Плов праздничный'));
+  assert.ok(ans.en.includes('Плов праздничный'));
+});
+
+test('submitCoarenaFeedback and listCoarenaModels work cleanly in offline / no-key fallback mode', async () => {
+  const prevCoarena = env.COARENA_API_KEY;
+  const prevGemini = env.GEMINI_API_KEY;
+  env.COARENA_API_KEY = undefined;
+  env.GEMINI_API_KEY = undefined;
+  try {
+    const models = await listCoarenaModels();
+    assert.equal(models.configured, false);
+    assert.equal(models.models.length, 3);
+    assert.equal(models.models[0]!.id, 'gemini-3-8-flash');
+
+    const fbHeuristic = await submitCoarenaFeedback({
+      requestId: 'heuristic-1700000000',
+      rating: 'up',
+    });
+    assert.equal(fbHeuristic.ok, true);
+    assert.equal(fbHeuristic.status, 200);
+
+    const fbLocalGemini = await submitCoarenaFeedback({
+      requestId: 'local-gemini-1700000000',
+      rating: 'down',
+    });
+    assert.equal(fbLocalGemini.ok, true);
+    assert.equal(fbLocalGemini.status, 200);
+
+    const fbExternal = await submitCoarenaFeedback({
+      requestId: 'coarena-12345',
+      rating: 'up',
+    });
+    assert.equal(fbExternal.ok, false);
+    assert.equal(fbExternal.status, 400);
+  } finally {
+    env.COARENA_API_KEY = prevCoarena;
+    env.GEMINI_API_KEY = prevGemini;
+  }
 });

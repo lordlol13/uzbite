@@ -74,7 +74,8 @@ export async function callCoarenaChat(params: {
   model?: string;
   timeoutMs?: number;
 }): Promise<CoarenaChatResult | null> {
-  if (!env.COARENA_API_KEY) return null;
+  const apiKey = env.COARENA_API_KEY?.trim();
+  if (!apiKey) return null;
 
   const baseUrl = env.COARENA_BASE_URL.replace(/\/+$/, '');
   const endpoint = `${baseUrl}/chat/completions`;
@@ -106,7 +107,7 @@ export async function callCoarenaChat(params: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.COARENA_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         signal: controller.signal,
         body: JSON.stringify(payload),
@@ -135,6 +136,9 @@ export async function callCoarenaChat(params: {
 
       const choice = json.choices?.[0];
       if (!choice?.message) continue;
+      if (!choice.message.content?.trim() && (!choice.message.tool_calls || choice.message.tool_calls.length === 0)) {
+        continue;
+      }
 
       const headerReqId = res.headers.get('x-coarena-request-id');
       const requestId = headerReqId || json.id || `coarena-${Date.now()}`;
@@ -159,12 +163,67 @@ export async function callCoarenaChat(params: {
   return null;
 }
 
+export async function callGeminiAgentChat(params: {
+  systemInstruction: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  temperature?: number;
+  maxOutputTokens?: number;
+  timeoutMs?: number;
+}): Promise<{ requestId: string; model: string; content: string } | null> {
+  const geminiKey = env.GEMINI_API_KEY?.trim();
+  if (!geminiKey) return null;
+
+  const model = env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiKey)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), params.timeoutMs ?? 12_000);
+
+  try {
+    const contents = params.messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: params.systemInstruction }] },
+        contents,
+        generationConfig: {
+          temperature: params.temperature ?? 0.15,
+          maxOutputTokens: params.maxOutputTokens ?? 400,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
+    if (!res.ok) return null;
+
+    const json = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) return null;
+
+    return {
+      requestId: `local-gemini-${Date.now()}`,
+      model,
+      content: text,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function callCoarenaJson(
   prompt: string,
   imagePart?: { base64: string; mimeType: string },
   model?: string,
 ): Promise<{ data: unknown; requestId: string; model: string } | null> {
-  if (!env.COARENA_API_KEY) return null;
+  if (!env.COARENA_API_KEY?.trim()) return null;
 
   const content: string | Array<Record<string, unknown>> = imagePart
     ? [
@@ -200,18 +259,19 @@ export async function submitCoarenaFeedback(params: {
   rating: 'up' | 'down';
   comment?: string;
 }): Promise<{ ok: boolean; status: number; upstream: unknown }> {
-  if (!env.COARENA_API_KEY) {
-    return {
-      ok: false,
-      status: 400,
-      upstream: { error: 'COARENA_API_KEY is not configured' },
-    };
-  }
-  if (params.requestId.startsWith('heuristic-')) {
+  if (params.requestId.startsWith('heuristic-') || params.requestId.startsWith('local-')) {
     return {
       ok: true,
       status: 200,
       upstream: { accepted: true, localOnly: true, request_id: params.requestId },
+    };
+  }
+  const apiKey = env.COARENA_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 400,
+      upstream: { error: 'COARENA_API_KEY is not configured' },
     };
   }
 
@@ -226,7 +286,7 @@ export async function submitCoarenaFeedback(params: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.COARENA_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       signal: controller.signal,
       body: JSON.stringify({
@@ -251,14 +311,15 @@ export async function submitCoarenaFeedback(params: {
       return { ok: true, status: res.status, upstream };
     }
 
-    // Retry with string rating if upstream expects 'up'/'down' or 'positive'/'negative'
+    // Retry with string rating if upstream expects 'up'/'down' or 'good'/'bad'
     if (res.status === 400 || res.status === 422) {
       const retryRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.COARENA_API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           request_id: params.requestId,
           rating: params.rating === 'up' ? 'good' : 'bad',
@@ -306,8 +367,14 @@ export async function listCoarenaModels(): Promise<{
     { id: 'gpt-6-luna', displayName: 'GPT-6 Luna', ownedBy: 'openai', freeTier: true, tools: true },
   ];
 
-  if (!env.COARENA_API_KEY) {
-    return { activeModel: env.COARENA_MODEL, configured: false, models: defaultModels };
+  const apiKey = env.COARENA_API_KEY?.trim();
+  const geminiKey = env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    return {
+      activeModel: env.COARENA_MODEL,
+      configured: Boolean(geminiKey),
+      models: defaultModels,
+    };
   }
 
   const baseUrl = env.COARENA_BASE_URL.replace(/\/+$/, '');
@@ -315,11 +382,16 @@ export async function listCoarenaModels(): Promise<{
   const timer = setTimeout(() => controller.abort(), 5_000);
   try {
     const res = await fetch(`${baseUrl}/models`, {
-      headers: { Authorization: `Bearer ${env.COARENA_API_KEY}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
     if (!res.ok) {
-      return { activeModel: env.COARENA_MODEL, configured: true, models: defaultModels };
+      const authFailed = res.status === 401 || res.status === 403;
+      return {
+        activeModel: env.COARENA_MODEL,
+        configured: authFailed ? Boolean(geminiKey) : true,
+        models: defaultModels,
+      };
     }
     const json = (await res.json()) as {
       data?: Array<{

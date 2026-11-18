@@ -7,6 +7,19 @@ import {
   type Language,
 } from '@uzbite/shared';
 import {
+  AnimatedProgressBar,
+  EmptyStateCard,
+  IconCheck,
+  IconDownload,
+  IconPlus,
+  IconSearch,
+  IconSparkles,
+  IconSpinner,
+  IconTrash,
+  IconX,
+  SkeletonRows,
+} from '../components/DesignWidgets';
+import {
   classifyExpense,
   createExpense,
   deleteExpense,
@@ -67,8 +80,9 @@ export function ExpensesPage({
   const groupFilter = controlledGroup ?? internalGroup;
   const [catFilter, setCatFilter] = useState<ExpenseCategory | ''>('');
   const [panel, setPanel] = useState<'none' | 'add' | 'csv' | 'ocr'>('none');
-  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [classifying, setClassifying] = useState(false);
 
   function setGroupFilter(next: ExpenseGroupId) {
     if (onGroupFilterChange) {
@@ -117,6 +131,8 @@ export function ExpensesPage({
     );
   });
 
+  const hasActiveFilter = groupFilter !== 'ALL' || Boolean(catFilter) || Boolean(search.trim());
+
   const totalAmount = Math.max(
     1,
     expenses.reduce((s, e) => s + e.amount, 0),
@@ -142,18 +158,41 @@ export function ExpensesPage({
   const availableCategoriesForSelect =
     groupFilter === 'ALL' ? EXPENSE_CATEGORIES : EXPENSE_GROUP_META[groupFilter].categories;
 
+  const qtyNum = Number(quantity);
+  const priceNum = Number(unitPrice);
+  const computedTotal =
+    quantity.trim() !== '' &&
+    unitPrice.trim() !== '' &&
+    Number.isFinite(qtyNum) &&
+    Number.isFinite(priceNum) &&
+    qtyNum > 0 &&
+    priceNum > 0
+      ? Math.round(qtyNum * priceNum)
+      : null;
+
   async function handleClassify() {
     const text = `${itemName} ${description}`.trim();
     if (!text) return;
-    const result = await classifyExpense(text);
-    setClassification(result);
-    setCategory(result.category);
+    setClassifying(true);
+    setFeedback(null);
+    try {
+      const result = await classifyExpense(text);
+      setClassification(result);
+      setCategory(result.category);
+    } catch (err) {
+      setFeedback({
+        tone: 'bad',
+        text: err instanceof Error ? err.message : 'Classification failed',
+      });
+    } finally {
+      setClassifying(false);
+    }
   }
 
   async function handleAddSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setStatusMsg(null);
+    setFeedback(null);
     try {
       await createExpense({
         supplierName: supplierName.trim() || null,
@@ -177,9 +216,12 @@ export function ExpensesPage({
       setInvoiceNumber('');
       setClassification(null);
       await onMutated();
-      setStatusMsg('OK');
+      setFeedback({
+        tone: 'good',
+        text: lang === 'uz' ? 'Xarajat saqlandi' : lang === 'ru' ? 'Расход добавлен' : 'Expense saved',
+      });
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Save failed');
+      setFeedback({ tone: 'bad', text: err instanceof Error ? err.message : 'Save failed' });
     } finally {
       setBusy(false);
     }
@@ -199,15 +241,23 @@ export function ExpensesPage({
   async function handleCsvImport(rowsToImport: ParsedCsvExpenseRow[]) {
     if (rowsToImport.length === 0) return;
     setBusy(true);
-    setStatusMsg(null);
+    setFeedback(null);
     try {
       const res = await importExpensesCsv(rowsToImport.map(r => ({ ...r })));
       setCsvRows([]);
       setPanel('none');
       await onMutated();
-      setStatusMsg(`Imported ${res.importedCount} rows · ${res.findingsTriggered} findings active`);
+      setFeedback({
+        tone: 'good',
+        text:
+          lang === 'uz'
+            ? `${res.importedCount} qator yuklandi · ${res.findingsTriggered} topilma`
+            : lang === 'ru'
+              ? `Импортировано ${res.importedCount} строк · ${res.findingsTriggered} находок`
+              : `Imported ${res.importedCount} rows · ${res.findingsTriggered} findings active`,
+      });
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'Import failed');
+      setFeedback({ tone: 'bad', text: err instanceof Error ? err.message : 'Import failed' });
     } finally {
       setBusy(false);
     }
@@ -215,7 +265,7 @@ export function ExpensesPage({
 
   async function handleOcrExtract() {
     setBusy(true);
-    setStatusMsg(null);
+    setFeedback(null);
     try {
       const draft = await extractOcrDraft({ rawText: ocrText });
       setSupplierName(draft.supplierName);
@@ -229,9 +279,12 @@ export function ExpensesPage({
       setInvoiceNumber(draft.invoiceNumber);
       setSpentAt(draft.spentAt);
       setPanel('add');
-      setStatusMsg(`OCR (${Math.round(draft.confidence * 100)}%)`);
+      setFeedback({
+        tone: 'good',
+        text: `OCR (${Math.round(draft.confidence * 100)}%) ✓`,
+      });
     } catch (err) {
-      setStatusMsg(err instanceof Error ? err.message : 'OCR failed');
+      setFeedback({ tone: 'bad', text: err instanceof Error ? err.message : 'OCR failed' });
     } finally {
       setBusy(false);
     }
@@ -239,9 +292,16 @@ export function ExpensesPage({
 
   async function handleDelete(id: string) {
     setBusy(true);
+    setFeedback(null);
     try {
       await deleteExpense(id);
       await onMutated();
+      setFeedback({
+        tone: 'good',
+        text: lang === 'uz' ? 'Yozuv o‘chirildi' : lang === 'ru' ? 'Запись удалена' : 'Expense deleted',
+      });
+    } catch (err) {
+      setFeedback({ tone: 'bad', text: err instanceof Error ? err.message : 'Delete failed' });
     } finally {
       setBusy(false);
     }
@@ -249,15 +309,19 @@ export function ExpensesPage({
 
   async function handleToggleVerify(exp: ExpenseDto) {
     setBusy(true);
+    setFeedback(null);
     try {
       await updateExpense(exp.id, { isVerified: !exp.isVerified });
       await onMutated();
+    } catch (err) {
+      setFeedback({ tone: 'bad', text: err instanceof Error ? err.message : 'Update failed' });
     } finally {
       setBusy(false);
     }
   }
 
   function handleExportCsv() {
+    if (filtered.length === 0) return;
     downloadCsv(
       `uzbite-expenses-${new Date().toISOString().slice(0, 10)}.csv`,
       ['Date', 'Category', 'Supplier', 'Item', 'Description', 'Qty', 'Unit', 'UnitPrice', 'Amount', 'Invoice', 'Source'],
@@ -277,158 +341,235 @@ export function ExpensesPage({
     );
   }
 
+  function resetAllFilters() {
+    setGroupFilter('ALL');
+    setCatFilter('');
+    setSearch('');
+  }
+
   return (
-    <div className="grid gap-5">
+    <div className="animate-page-enter grid gap-5">
       {/* Priority Expense Spotlight Strip: Taxes, Electricity/Utilities, Base, Additional */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
         <button
           type="button"
           onClick={() => {
-            setGroupFilter('PRIORITY');
-            setCatFilter('TAXES');
+            if (catFilter === 'TAXES') {
+              resetAllFilters();
+            } else {
+              setGroupFilter('PRIORITY');
+              setCatFilter('TAXES');
+            }
           }}
-          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+          className={`card animate-card-in stagger-1 hover-lift flex flex-col justify-between gap-2.5 p-4 text-left ${
             catFilter === 'TAXES' ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/30' : ''
           }`}
         >
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
-                {t.priorityBadge}
-              </span>
-              <span className="truncate text-xs font-medium text-[var(--muted)]">{t.taxes}</span>
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                  {t.priorityBadge}
+                </span>
+                <span className="truncate text-xs font-medium text-[var(--muted)]">{t.taxes}</span>
+              </div>
+              <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+                {fmtCompactMoney(taxesSum, lang)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                {taxesRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+                {((taxesSum / totalAmount) * 100).toFixed(1)}%
+              </div>
             </div>
-            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
-              {fmtCompactMoney(taxesSum, lang)}
-            </div>
-            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
-              {taxesRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
-              {((taxesSum / totalAmount) * 100).toFixed(1)}%
-            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bad-soft)] text-[11px] font-bold text-[var(--bad)] tabular-nums">
+              {((taxesSum / totalAmount) * 100).toFixed(0)}%
+            </span>
           </div>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--bad-soft)] text-[11px] font-bold text-[var(--bad)] tabular-nums">
-            {((taxesSum / totalAmount) * 100).toFixed(0)}%
-          </span>
+          <AnimatedProgressBar
+            pct={(taxesSum / totalAmount) * 100}
+            tone="pink"
+            showThumb={false}
+            heightClass="h-1"
+          />
         </button>
 
         <button
           type="button"
           onClick={() => {
-            setGroupFilter('PRIORITY');
-            setCatFilter('UTILITIES');
+            if (catFilter === 'UTILITIES') {
+              resetAllFilters();
+            } else {
+              setGroupFilter('PRIORITY');
+              setCatFilter('UTILITIES');
+            }
           }}
-          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+          className={`card animate-card-in stagger-2 hover-lift flex flex-col justify-between gap-2.5 p-4 text-left ${
             catFilter === 'UTILITIES' ? 'border-[var(--accent-3)] ring-1 ring-[var(--accent-3)]/30' : ''
           }`}
         >
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
-              >
-                {t.priorityBadge}
-              </span>
-              <span className="truncate text-xs font-medium text-[var(--muted)]">
-                {t.electricityUtilities}
-              </span>
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                  style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+                >
+                  {t.priorityBadge}
+                </span>
+                <span className="truncate text-xs font-medium text-[var(--muted)]">
+                  {t.electricityUtilities}
+                </span>
+              </div>
+              <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+                {fmtCompactMoney(elecSum, lang)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                {totalKwh > 0
+                  ? `${new Intl.NumberFormat(lang === 'en' ? 'en-US' : 'ru-RU').format(Math.round(totalKwh))} ${lang === 'en' ? 'kWh' : 'кВт·ч'}`
+                  : `${elecRows.length} ${lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'}`}{' '}
+                · {((elecSum / totalAmount) * 100).toFixed(1)}%
+              </div>
             </div>
-            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
-              {fmtCompactMoney(elecSum, lang)}
-            </div>
-            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
-              {totalKwh > 0
-                ? `${new Intl.NumberFormat(lang === 'en' ? 'en-US' : 'ru-RU').format(Math.round(totalKwh))} ${lang === 'en' ? 'kWh' : 'кВт·ч'}`
-                : `${elecRows.length} ${lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'}`}{' '}
-              · {((elecSum / totalAmount) * 100).toFixed(1)}%
-            </div>
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+              style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
+            >
+              {((elecSum / totalAmount) * 100).toFixed(0)}%
+            </span>
           </div>
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
-            style={{ background: 'rgba(255, 138, 71, 0.14)', color: 'var(--accent-3)' }}
-          >
-            {((elecSum / totalAmount) * 100).toFixed(0)}%
-          </span>
+          <AnimatedProgressBar
+            pct={(elecSum / totalAmount) * 100}
+            tone="warn"
+            showThumb={false}
+            heightClass="h-1"
+            delayMs={60}
+          />
         </button>
 
         <button
           type="button"
           onClick={() => {
-            setGroupFilter('BASE');
-            setCatFilter('');
+            if (groupFilter === 'BASE' && !catFilter) {
+              resetAllFilters();
+            } else {
+              setGroupFilter('BASE');
+              setCatFilter('');
+            }
           }}
-          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+          className={`card animate-card-in stagger-3 hover-lift flex flex-col justify-between gap-2.5 p-4 text-left ${
             groupFilter === 'BASE' && !catFilter ? 'border-[var(--mint)] ring-1 ring-[var(--mint)]/30' : ''
           }`}
         >
-          <div className="min-w-0">
-            <div className="truncate text-xs font-medium text-[var(--muted)]">
-              {EXPENSE_GROUP_META.BASE.shortLabel[lang]} ·{' '}
-              {lang === 'ru' ? 'Сырьё, ФОТ, Аренда' : lang === 'uz' ? 'Masalliq, Haq, Ijara' : 'Ingredients, Payroll, Rent'}
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-[var(--muted)]">
+                {EXPENSE_GROUP_META.BASE.shortLabel[lang]} ·{' '}
+                {lang === 'ru' ? 'Сырьё, ФОТ, Аренда' : lang === 'uz' ? 'Masalliq, Haq, Ijara' : 'Ingredients, Payroll, Rent'}
+              </div>
+              <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+                {fmtCompactMoney(baseSum, lang)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                {baseRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+                {((baseSum / totalAmount) * 100).toFixed(1)}%
+              </div>
             </div>
-            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
-              {fmtCompactMoney(baseSum, lang)}
-            </div>
-            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
-              {baseRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
-              {((baseSum / totalAmount) * 100).toFixed(1)}%
-            </div>
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+              style={{ background: 'var(--mint-soft)', color: 'var(--mint)' }}
+            >
+              {((baseSum / totalAmount) * 100).toFixed(0)}%
+            </span>
           </div>
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
-            style={{ background: 'var(--mint-soft)', color: 'var(--mint)' }}
-          >
-            {((baseSum / totalAmount) * 100).toFixed(0)}%
-          </span>
+          <AnimatedProgressBar
+            pct={(baseSum / totalAmount) * 100}
+            tone="mint"
+            showThumb={false}
+            heightClass="h-1"
+            delayMs={120}
+          />
         </button>
 
         <button
           type="button"
           onClick={() => {
-            setGroupFilter('ADDITIONAL');
-            setCatFilter('');
+            if (groupFilter === 'ADDITIONAL' && !catFilter) {
+              resetAllFilters();
+            } else {
+              setGroupFilter('ADDITIONAL');
+              setCatFilter('');
+            }
           }}
-          className={`card flex items-center justify-between gap-3 p-4 text-left transition hover:-translate-y-0.5 ${
+          className={`card animate-card-in stagger-4 hover-lift flex flex-col justify-between gap-2.5 p-4 text-left ${
             groupFilter === 'ADDITIONAL' && !catFilter
               ? 'border-[var(--accent-2)] ring-1 ring-[var(--accent-2)]/30'
               : ''
           }`}
         >
-          <div className="min-w-0">
-            <div className="truncate text-xs font-medium text-[var(--muted)]">
-              {EXPENSE_GROUP_META.ADDITIONAL.shortLabel[lang]} ·{' '}
-              {lang === 'ru' ? 'Упаковка, Доставка, Маркетинг' : lang === 'uz' ? 'Qadoq, Yetkazish, Marketing' : 'Pack, Delivery, Marketing'}
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-[var(--muted)]">
+                {EXPENSE_GROUP_META.ADDITIONAL.shortLabel[lang]} ·{' '}
+                {lang === 'ru' ? 'Упаковка, Доставка, Маркетинг' : lang === 'uz' ? 'Qadoq, Yetkazish, Marketing' : 'Pack, Delivery, Marketing'}
+              </div>
+              <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
+                {fmtCompactMoney(additionalSum, lang)}
+              </div>
+              <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
+                {additionalRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
+                {((additionalSum / totalAmount) * 100).toFixed(1)}%
+              </div>
             </div>
-            <div className="mt-1.5 text-base font-semibold tabular-nums text-[var(--text)]">
-              {fmtCompactMoney(additionalSum, lang)}
-            </div>
-            <div className="mt-0.5 text-[11px] text-[var(--muted)] tabular-nums">
-              {additionalRows.length} {lang === 'ru' ? 'поз.' : lang === 'uz' ? 'ta' : 'items'} ·{' '}
-              {((additionalSum / totalAmount) * 100).toFixed(1)}%
-            </div>
+            <span
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
+              style={{ background: 'rgba(129, 114, 255, 0.14)', color: 'var(--accent-2)' }}
+            >
+              {((additionalSum / totalAmount) * 100).toFixed(0)}%
+            </span>
           </div>
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold tabular-nums"
-            style={{ background: 'rgba(129, 114, 255, 0.14)', color: 'var(--accent-2)' }}
-          >
-            {((additionalSum / totalAmount) * 100).toFixed(0)}%
-          </span>
+          <AnimatedProgressBar
+            pct={(additionalSum / totalAmount) * 100}
+            tone="violet"
+            showThumb={false}
+            heightClass="h-1"
+            delayMs={180}
+          />
         </button>
       </div>
 
       {/* Toolbar */}
-      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
+      <div className="card animate-card-in stagger-2 flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => setPanel(panel === 'add' ? 'none' : 'add')} className="btn-primary">
-            {t.addExpense}
+          <button
+            type="button"
+            onClick={() => setPanel(panel === 'add' ? 'none' : 'add')}
+            className="btn-primary"
+          >
+            <IconPlus size={14} />
+            {t.addExpense.replace(/^\+\s*/, '')}
           </button>
-          <button type="button" onClick={() => setPanel(panel === 'csv' ? 'none' : 'csv')} className="btn-secondary">
+          <button
+            type="button"
+            onClick={() => setPanel(panel === 'csv' ? 'none' : 'csv')}
+            className={`btn-secondary ${panel === 'csv' ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
+          >
             {t.importCsv}
           </button>
-          <button type="button" onClick={() => setPanel(panel === 'ocr' ? 'none' : 'ocr')} className="btn-secondary">
+          <button
+            type="button"
+            onClick={() => setPanel(panel === 'ocr' ? 'none' : 'ocr')}
+            className={`btn-secondary ${panel === 'ocr' ? 'border-[var(--accent)] text-[var(--accent)]' : ''}`}
+          >
+            <IconSparkles size={13} className="text-[var(--accent)]" />
             {t.ocrExtract}
           </button>
-          <button type="button" onClick={handleExportCsv} className="btn-secondary">
+          <button
+            type="button"
+            disabled={filtered.length === 0}
+            onClick={handleExportCsv}
+            className="btn-secondary"
+          >
+            <IconDownload size={13} />
             {t.exportCsv}
           </button>
         </div>
@@ -439,9 +580,9 @@ export function ExpensesPage({
               <button
                 type="button"
                 onClick={() => onToggleAllDates(false)}
-                className={`rounded-full px-3 py-1 tabular-nums transition ${
+                className={`rounded-full px-3 py-1 tabular-nums transition-all duration-150 ${
                   !showAllDates
-                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
                     : 'text-[var(--muted)] hover:text-[var(--text)]'
                 }`}
               >
@@ -450,9 +591,9 @@ export function ExpensesPage({
               <button
                 type="button"
                 onClick={() => onToggleAllDates(true)}
-                className={`rounded-full px-3 py-1 transition ${
+                className={`rounded-full px-3 py-1 transition-all duration-150 ${
                   showAllDates
-                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)]'
+                    ? 'bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
                     : 'text-[var(--muted)] hover:text-[var(--text)]'
                 }`}
               >
@@ -461,26 +602,52 @@ export function ExpensesPage({
             </div>
           )}
 
-          {statusMsg && (
-            <span className="rounded-full bg-[var(--accent-soft)] px-3 py-1 text-xs font-bold text-[var(--accent)]">
-              {statusMsg}
-            </span>
+          {feedback && (
+            <div
+              className={`animate-scale-in inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
+                feedback.tone === 'good'
+                  ? 'bg-[var(--good-soft)] text-[var(--good)]'
+                  : 'bg-[var(--bad-soft)] text-[var(--bad)]'
+              }`}
+            >
+              {feedback.tone === 'good' && <IconCheck size={12} />}
+              <span>{feedback.text}</span>
+              <button type="button" onClick={() => setFeedback(null)} className="opacity-70 hover:opacity-100">
+                <IconX size={11} />
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {/* Add Expense Drawer */}
       {panel === 'add' && (
-        <form onSubmit={handleAddSubmit} className="card grid gap-4 p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="m-0 text-sm font-semibold">{t.addExpense}</h2>
-            <button type="button" onClick={handleClassify} className="btn-secondary text-xs">
-              {t.autoClassify}
-            </button>
+        <form onSubmit={handleAddSubmit} className="card animate-slide-up grid gap-4 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="m-0 text-sm font-semibold text-[var(--text)]">{t.addExpense}</h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={classifying || (!itemName.trim() && !description.trim())}
+                onClick={() => void handleClassify()}
+                className="btn-secondary text-xs"
+              >
+                {classifying ? <IconSpinner size={12} /> : <IconSparkles size={12} className="text-[var(--accent)]" />}
+                {t.autoClassify}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPanel('none')}
+                aria-label={t.cancel}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--text)]"
+              >
+                <IconX size={14} />
+              </button>
+            </div>
           </div>
 
           {classification && (
-            <div className="rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs text-[var(--text)]">
+            <div className="animate-scale-in rounded-xl bg-[var(--accent-soft)] px-3.5 py-2 text-xs text-[var(--text)]">
               <strong>{CATEGORY_LABELS[classification.category][lang]}</strong> ({Math.round(classification.confidence * 100)}% {t.classifyConfidence}): {classification.reason[lang]}
             </div>
           )}
@@ -518,15 +685,26 @@ export function ExpensesPage({
 
             <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
               {t.qty}
-              <input type="number" step="0.001" className="input-field" value={quantity} onChange={e => setQuantity(e.target.value)} />
+              <input type="number" step="0.001" className="input-field tabular-nums" value={quantity} onChange={e => setQuantity(e.target.value)} />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
               {t.unitPrice}
-              <input type="number" step="1" className="input-field" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} />
+              <input type="number" step="1" className="input-field tabular-nums" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} />
             </label>
             <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
-              {t.amount}
-              <input type="number" step="1" className="input-field" value={amount} onChange={e => setAmount(e.target.value)} required />
+              <span className="flex items-center justify-between gap-2">
+                <span>{t.amount}</span>
+                {computedTotal !== null && Number(amount) !== computedTotal && (
+                  <button
+                    type="button"
+                    onClick={() => setAmount(String(computedTotal))}
+                    className="text-[10.5px] font-bold text-[var(--accent)] hover:underline tabular-nums"
+                  >
+                    = {fmtMoney(computedTotal, lang)}
+                  </button>
+                )}
+              </span>
+              <input type="number" step="1" className="input-field tabular-nums" value={amount} onChange={e => setAmount(e.target.value)} required />
             </label>
 
             <label className="grid gap-1 text-xs font-semibold text-[var(--muted)]">
@@ -541,27 +719,46 @@ export function ExpensesPage({
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setPanel('none')} className="btn-secondary">{t.cancel}</button>
-            <button type="submit" disabled={busy} className="btn-primary">{t.save}</button>
+            <button type="submit" disabled={busy} className="btn-primary">
+              {busy && <IconSpinner size={13} />}
+              {t.save}
+            </button>
           </div>
         </form>
       )}
 
       {/* CSV Import Panel */}
       {panel === 'csv' && (
-        <div className="card grid gap-4 p-5">
+        <div className="card animate-slide-up grid gap-4 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="m-0 text-sm font-semibold">{t.importCsv}</h2>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => handleCsvImport(parseExpensesCsv(DEMO_CSV_SAMPLE))}
-              className="btn-secondary text-xs"
-            >
-              {t.loadDemoCsv}
-            </button>
+            <h2 className="m-0 text-sm font-semibold text-[var(--text)]">{t.importCsv}</h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleCsvImport(parseExpensesCsv(DEMO_CSV_SAMPLE))}
+                className="btn-secondary text-xs"
+              >
+                {busy && <IconSpinner size={12} />}
+                {t.loadDemoCsv}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPanel('none')}
+                aria-label={t.cancel}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--text)]"
+              >
+                <IconX size={14} />
+              </button>
+            </div>
           </div>
 
-          <input type="file" accept=".csv,text/csv" onChange={handleCsvFile} className="text-xs" />
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={handleCsvFile}
+            className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)]/50 p-3 text-xs text-[var(--muted)] file:mr-3 file:rounded-full file:border-0 file:bg-[var(--cta-bg)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--cta-text)]"
+          />
 
           {csvRows.length > 0 && (
             <div className="grid gap-3">
@@ -582,7 +779,11 @@ export function ExpensesPage({
                         <td className="p-2 tabular-nums">{r.spentAt}</td>
                         <td className="p-2">{r.supplierName ?? '—'}</td>
                         <td className="p-2">{r.itemName}</td>
-                        <td className="p-2">{r.category ? CATEGORY_LABELS[r.category][lang] : 'AI Auto'}</td>
+                        <td className="p-2">
+                          {r.category
+                            ? CATEGORY_LABELS[r.category][lang]
+                            : lang === 'uz' ? 'AI Avto' : lang === 'ru' ? 'AI Авто' : 'AI Auto'}
+                        </td>
                         <td className="p-2 text-right font-bold tabular-nums">{fmtMoney(r.amount, lang)}</td>
                       </tr>
                     ))}
@@ -591,7 +792,8 @@ export function ExpensesPage({
               </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setCsvRows([])} className="btn-secondary">{t.cancel}</button>
-                <button type="button" disabled={busy} onClick={() => handleCsvImport(csvRows)} className="btn-primary">
+                <button type="button" disabled={busy} onClick={() => void handleCsvImport(csvRows)} className="btn-primary">
+                  {busy && <IconSpinner size={13} />}
                   {t.importCsv} ({csvRows.length})
                 </button>
               </div>
@@ -602,31 +804,39 @@ export function ExpensesPage({
 
       {/* AI OCR Draft Panel */}
       {panel === 'ocr' && (
-        <div className="card grid gap-3 p-5">
+        <div className="card animate-slide-up grid gap-3 p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="m-0 text-sm font-semibold">{t.ocrExtract}</h2>
-            <div className="flex gap-2 text-xs">
+            <h2 className="m-0 text-sm font-semibold text-[var(--text)]">{t.ocrExtract}</h2>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary text-xs"
                 onClick={() =>
                   setOcrText(
                     `Поставщик: Chorvoq Go'sht База\nНакладная № CG-402\nДата: ${new Date().toISOString().slice(0, 10)}\nГовядина мякоть\n30 кг x 82000\nИтого: 2460000 UZS`,
                   )
                 }
               >
-                Sample: Meat
+                {lang === 'uz' ? 'Namuna: Go‘sht' : lang === 'ru' ? 'Пример: Мясо' : 'Sample: Meat'}
               </button>
               <button
                 type="button"
-                className="btn-secondary"
+                className="btn-secondary text-xs"
                 onClick={() =>
                   setOcrText(
                     `Поставщик: Uztelecom Business\nСчёт № UZT-2026-89\nДата: ${new Date().toISOString().slice(0, 10)}\nКорпоративный интернет и IP-телефония\nИтого: 520000 UZS`,
                   )
                 }
               >
-                Sample: Telecom
+                {lang === 'uz' ? 'Namuna: Aloqa' : lang === 'ru' ? 'Пример: Связь' : 'Sample: Telecom'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPanel('none')}
+                aria-label={t.cancel}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--text)]"
+              >
+                <IconX size={14} />
               </button>
             </div>
           </div>
@@ -638,13 +848,16 @@ export function ExpensesPage({
           />
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setPanel('none')} className="btn-secondary">{t.cancel}</button>
-            <button type="button" disabled={busy} onClick={handleOcrExtract} className="btn-primary">{t.ocrExtract}</button>
+            <button type="button" disabled={busy || !ocrText.trim()} onClick={() => void handleOcrExtract()} className="btn-primary">
+              {busy ? <IconSpinner size={13} /> : <IconSparkles size={13} />}
+              {t.ocrExtract}
+            </button>
           </div>
         </div>
       )}
 
       {/* Search & Group Filter + Ledger Table */}
-      <div className="card p-5">
+      <div className="card animate-card-in stagger-3 p-5">
         {/* Category Group Pills */}
         <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2">
           <div className="no-scrollbar flex flex-wrap items-center gap-1.5">
@@ -658,7 +871,7 @@ export function ExpensesPage({
                     setGroupFilter(g);
                     setCatFilter('');
                   }}
-                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
+                  className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all duration-150 ${
                     active
                       ? 'border-transparent bg-[var(--cta-bg)] text-[var(--cta-text)] shadow-xs'
                       : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
@@ -668,6 +881,16 @@ export function ExpensesPage({
                 </button>
               );
             })}
+            {hasActiveFilter && (
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-semibold text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]"
+              >
+                <IconX size={11} />
+                {lang === 'uz' ? 'Tozalash' : lang === 'ru' ? 'Сброс' : 'Clear'}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-xs tabular-nums">
@@ -679,13 +902,19 @@ export function ExpensesPage({
         </div>
 
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <input
-            type="search"
-            className="input-field max-w-sm"
-            placeholder={t.search}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <div className="relative w-full max-w-sm">
+            <IconSearch
+              size={14}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--muted)]"
+            />
+            <input
+              type="search"
+              className="input-field pl-9"
+              placeholder={t.search}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
           <select
             className="input-field max-w-xs"
             value={catFilter}
@@ -732,120 +961,134 @@ export function ExpensesPage({
         </div>
 
         {loading ? (
-          <p className="py-8 text-center text-xs text-[var(--muted)]">
-            {lang === 'ru' ? 'Загрузка расходов...' : lang === 'uz' ? 'Xarajatlar yuklanmoqda...' : 'Loading expenses...'}
-          </p>
+          <SkeletonRows rows={6} />
         ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-              <tr>
-                <th className="py-2.5 pr-3">{t.date}</th>
-                <th className="py-2.5 pr-3">{t.category}</th>
-                <th className="py-2.5 pr-3">{t.item}</th>
-                <th className="py-2.5 pr-3">{t.supplier}</th>
-                <th className="py-2.5 pr-3">{t.invoice}</th>
-                <th className="py-2.5 pr-3 text-right">{t.qty} · {t.unit}</th>
-                <th className="py-2.5 pr-3 text-right">{t.amount}</th>
-                <th className="py-2.5 pr-3">{t.status}</th>
-                <th className="py-2.5 pr-3">{t.source}</th>
-                <th className="py-2.5 text-right" />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(exp => {
-                const isPriority = PRIORITY_EXPENSE_CATEGORIES.includes(exp.category);
-                const qtyText =
-                  exp.quantity != null && exp.unitPrice != null
-                    ? `${exp.quantity} ${exp.unit ?? ''} × ${fmtMoney(exp.unitPrice, lang)}`
-                    : exp.quantity != null
-                      ? `${exp.quantity} ${exp.unit ?? ''}`.trim()
-                      : exp.unit
-                        ? exp.unit
-                        : '—';
-                return (
-                <tr
-                  key={exp.id}
-                  className={`border-b border-[var(--border)] last:border-0 ${
-                    isPriority ? 'bg-[var(--accent-soft)]/25' : ''
-                  }`}
-                >
-                  <td className="py-2.5 pr-3 whitespace-nowrap tabular-nums">{exp.spentAt.slice(0, 10)}</td>
-                  <td className="py-2.5 pr-3 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[11px] font-semibold">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: CATEGORY_COLORS[exp.category] }}
-                        />
-                        {CATEGORY_LABELS[exp.category][lang]}
-                      </span>
-                      {isPriority && (
-                        <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
-                          {t.priorityBadge}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <div className="font-bold">{exp.itemName}</div>
-                    <div className="max-w-xs truncate text-[11px] text-[var(--muted)]">{exp.description}</div>
-                  </td>
-                  <td className="py-2.5 pr-3 text-[var(--muted)]">{exp.supplierName ?? '—'}</td>
-                  <td className="py-2.5 pr-3 tabular-nums">
-                    {exp.invoiceNumber ? (
-                      <code className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--text)]">
-                        {exp.invoiceNumber}
-                      </code>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="py-2.5 pr-3 text-right whitespace-nowrap tabular-nums text-[var(--muted)]">
-                    {qtyText}
-                  </td>
-                  <td className="py-2.5 pr-3 text-right font-semibold whitespace-nowrap tabular-nums">
-                    {fmtMoney(exp.amount, lang)}
-                  </td>
-                  <td className="py-2.5 pr-3 whitespace-nowrap">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void handleToggleVerify(exp)}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
-                        exp.isVerified
-                          ? 'bg-[var(--good-soft)] text-[var(--good)] hover:brightness-95'
-                          : 'bg-[var(--warn-soft)] text-[var(--warn)] hover:brightness-95'
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+                <tr>
+                  <th className="py-2.5 pr-3">{t.date}</th>
+                  <th className="py-2.5 pr-3">{t.category}</th>
+                  <th className="py-2.5 pr-3">{t.item}</th>
+                  <th className="py-2.5 pr-3">{t.supplier}</th>
+                  <th className="py-2.5 pr-3">{t.invoice}</th>
+                  <th className="py-2.5 pr-3 text-right">{t.qty} · {t.unit}</th>
+                  <th className="py-2.5 pr-3 text-right">{t.amount}</th>
+                  <th className="py-2.5 pr-3">{t.status}</th>
+                  <th className="py-2.5 pr-3">{t.source}</th>
+                  <th className="py-2.5 text-right" />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(exp => {
+                  const isPriority = PRIORITY_EXPENSE_CATEGORIES.includes(exp.category);
+                  const qtyText =
+                    exp.quantity != null && exp.unitPrice != null
+                      ? `${exp.quantity} ${exp.unit ?? ''} × ${fmtMoney(exp.unitPrice, lang)}`
+                      : exp.quantity != null
+                        ? `${exp.quantity} ${exp.unit ?? ''}`.trim()
+                        : exp.unit
+                          ? exp.unit
+                          : '—';
+                  return (
+                    <tr
+                      key={exp.id}
+                      className={`border-b border-[var(--border)] transition-colors last:border-0 hover:bg-[var(--surface-2)]/70 ${
+                        isPriority ? 'bg-[var(--accent-soft)]/30' : ''
                       }`}
                     >
-                      <span>{exp.isVerified ? '✓' : '•'}</span>
-                      <span>{exp.isVerified ? t.verified : t.unverified}</span>
-                    </button>
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted)]">
-                      {exp.source}
-                    </span>
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => handleDelete(exp.id)}
-                      className="text-[11px] font-bold text-[var(--bad)] hover:underline"
-                    >
-                      {t.delete}
-                    </button>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {filtered.length === 0 && (
-            <p className="py-8 text-center text-xs text-[var(--muted)]">{t.noData}</p>
-          )}
-        </div>
+                      <td className="py-2.5 pr-3 whitespace-nowrap tabular-nums">{exp.spentAt.slice(0, 10)}</td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2.5 py-0.5 text-[11px] font-semibold">
+                            <span
+                              className="h-2 w-2 rounded-full"
+                              style={{ backgroundColor: CATEGORY_COLORS[exp.category] }}
+                            />
+                            {CATEGORY_LABELS[exp.category][lang]}
+                          </span>
+                          {isPriority && (
+                            <span className="rounded-full bg-[var(--accent-soft)] px-1.5 py-0.5 text-[9.5px] font-semibold text-[var(--accent)]">
+                              {t.priorityBadge}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <div className="font-bold text-[var(--text)]">{exp.itemName}</div>
+                        <div className="max-w-xs truncate text-[11px] text-[var(--muted)]">{exp.description}</div>
+                      </td>
+                      <td className="py-2.5 pr-3 text-[var(--muted)]">{exp.supplierName ?? '—'}</td>
+                      <td className="py-2.5 pr-3 tabular-nums">
+                        {exp.invoiceNumber ? (
+                          <code className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10.5px] font-medium text-[var(--text)]">
+                            {exp.invoiceNumber}
+                          </code>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right whitespace-nowrap tabular-nums text-[var(--muted)]">
+                        {qtyText}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-semibold whitespace-nowrap tabular-nums text-[var(--text)]">
+                        {fmtMoney(exp.amount, lang)}
+                      </td>
+                      <td className="py-2.5 pr-3 whitespace-nowrap">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleToggleVerify(exp)}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-all ${
+                            exp.isVerified
+                              ? 'bg-[var(--good-soft)] text-[var(--good)] hover:brightness-95'
+                              : 'bg-[var(--warn-soft)] text-[var(--warn)] hover:brightness-95'
+                          }`}
+                        >
+                          <span>{exp.isVerified ? '✓' : '•'}</span>
+                          <span>{exp.isVerified ? t.verified : t.unverified}</span>
+                        </button>
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        <span className="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--muted)]">
+                          {exp.source}
+                        </span>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleDelete(exp.id)}
+                          title={t.delete}
+                          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-bold text-[var(--bad)] transition-colors hover:bg-[var(--bad-soft)]"
+                        >
+                          <IconTrash size={12} />
+                          <span className="hidden sm:inline">{t.delete}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {filtered.length === 0 && (
+              <EmptyStateCard
+                className="mt-3"
+                title={t.noData}
+                actionLabel={
+                  hasActiveFilter
+                    ? lang === 'uz'
+                      ? 'Filtrlarni tozalash'
+                      : lang === 'ru'
+                        ? 'Сбросить фильтры'
+                        : 'Clear filters'
+                    : undefined
+                }
+                onAction={hasActiveFilter ? resetAllFilters : undefined}
+              />
+            )}
+          </div>
         )}
       </div>
     </div>

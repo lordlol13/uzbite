@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import type {
   AgentClientAction,
   AgentScreenContext,
@@ -148,6 +155,31 @@ const SCREEN_PROMPTS: ContextPromptMap = {
   },
 };
 
+async function copyTextSafe(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback below
+  }
+  try {
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.setAttribute('readonly', '');
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function AiCopilotDrawer({
   open,
   onClose,
@@ -162,6 +194,7 @@ export function AiCopilotDrawer({
   selectedModel,
   onSelectModel,
   models,
+  modelsConfigured,
   onAskQuestion,
   onClearConversation,
   onRateTurn,
@@ -181,6 +214,7 @@ export function AiCopilotDrawer({
   selectedModel: string;
   onSelectModel: (modelId: string) => void;
   models: AgentModelInfo[];
+  modelsConfigured?: boolean;
   onAskQuestion: (question: string) => Promise<void>;
   onClearConversation: () => void;
   onRateTurn: (turnId: string, requestId: string, rating: 'up' | 'down') => Promise<void>;
@@ -189,20 +223,32 @@ export function AiCopilotDrawer({
 }) {
   const [input, setInput] = useState('');
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [doneActionKeys, setDoneActionKeys] = useState<Record<string, boolean>>({});
+  const [copiedTurnId, setCopiedTurnId] = useState<string | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(t => window.clearTimeout(t));
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       inputRef.current?.focus();
-    }, 60);
-    return () => clearTimeout(timer);
+    }, 80);
+    return () => window.clearTimeout(timer);
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const raf = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+    return () => window.cancelAnimationFrame(raf);
   }, [open, turns.length, busy]);
 
   if (!open) return null;
@@ -221,23 +267,63 @@ export function AiCopilotDrawer({
   const contextPrompts =
     SCREEN_PROMPTS[screenContext.activeTab as NavTab]?.[lang] ?? SCREEN_PROMPTS.dashboard[lang];
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function submitQuestion() {
     const clean = input.trim();
     if (!clean || busy) return;
     setInput('');
     await onAskQuestion(clean);
   }
 
-  async function handleActionClick(action: AgentClientAction) {
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    await submitQuestion();
+  }
+
+  function handleInputKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      void submitQuestion();
+    }
+  }
+
+  async function handleActionClick(action: AgentClientAction): Promise<string | void> {
     const key = `${action.type}:${action.label}`;
     setActionBusyKey(key);
     try {
       const msg = await onExecuteAction(action);
-      if (msg) onStatusBanner(msg);
+      const feedbackMsg =
+        msg ||
+        (lang === 'uz'
+          ? `Amal bajarildi: ${action.label}`
+          : lang === 'ru'
+            ? `Выполнено: ${action.label}`
+            : `Executed: ${action.label}`);
+      onStatusBanner(feedbackMsg);
+      setDoneActionKeys(prev => ({ ...prev, [key]: true }));
+      const timer = window.setTimeout(() => {
+        setDoneActionKeys(prev => ({ ...prev, [key]: false }));
+      }, 2400);
+      timersRef.current.push(timer);
+      return msg;
     } finally {
       setActionBusyKey(null);
     }
+  }
+
+  async function handleCopyTurn(turnId: string, text: string) {
+    const ok = await copyTextSafe(text);
+    if (!ok) return;
+    setCopiedTurnId(turnId);
+    const timer = window.setTimeout(() => {
+      setCopiedTurnId(prev => (prev === turnId ? null : prev));
+    }, 2000);
+    timersRef.current.push(timer);
+  }
+
+  function handleClear() {
+    setCopiedTurnId(null);
+    setDoneActionKeys({});
+    onClearConversation();
   }
 
   return (
@@ -247,7 +333,7 @@ export function AiCopilotDrawer({
         type="button"
         aria-label="Close AI Copilot"
         onClick={onClose}
-        className="fixed inset-0 bg-black/25 backdrop-blur-[1px] transition-opacity"
+        className="animate-backdrop-in fixed inset-0 bg-black/30 backdrop-blur-[3px]"
       />
 
       {/* Slide-over Panel */}
@@ -255,7 +341,7 @@ export function AiCopilotDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="AI Copilot"
-        className="relative z-50 flex h-full w-full max-w-[540px] flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-2xl"
+        className="animate-drawer-in relative z-50 flex h-full w-full max-w-[540px] flex-col border-l border-[var(--border)] bg-[var(--bg)] shadow-2xl"
       >
         {/* Header */}
         <div className="flex flex-col gap-2.5 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5">
@@ -271,6 +357,18 @@ export function AiCopilotDrawer({
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
                     {activeModelInfo.displayName}
                   </span>
+                  {modelsConfigured === true && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--good-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--good)]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--good)]" />
+                      Live
+                    </span>
+                  )}
+                  {modelsConfigured === false && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--warn-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--warn)]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--warn)]" />
+                      Fallback
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -293,7 +391,7 @@ export function AiCopilotDrawer({
               <button
                 type="button"
                 disabled={turns.length === 0 || busy}
-                onClick={onClearConversation}
+                onClick={handleClear}
                 className="btn-secondary min-h-0 px-2 py-1.5 text-[11px]"
                 title={lang === 'uz' ? 'Tozalash' : lang === 'ru' ? 'Очистить чат' : 'Clear chat'}
               >
@@ -332,7 +430,7 @@ export function AiCopilotDrawer({
               value={selectedModel}
               disabled={busy}
               onChange={e => onSelectModel(e.target.value)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-semibold text-[var(--text)] outline-none"
+              className="cursor-pointer rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-semibold text-[var(--text)] outline-none transition focus:border-[var(--accent)]"
             >
               {models.map(m => (
                 <option key={m.id} value={m.id}>
@@ -345,7 +443,7 @@ export function AiCopilotDrawer({
 
         {/* Status Banner */}
         {statusBanner && (
-          <div className="mx-4 mt-3 flex items-center justify-between gap-2 rounded-xl border border-[var(--good)] bg-[var(--good-soft)] px-3 py-2 text-xs font-bold text-[var(--good)]">
+          <div className="animate-slide-up mx-4 mt-3 flex items-center justify-between gap-2 rounded-xl border border-[var(--good)] bg-[var(--good-soft)] px-3 py-2 text-xs font-bold text-[var(--good)]">
             <span className="truncate">{statusBanner}</span>
             <button
               type="button"
@@ -374,8 +472,9 @@ export function AiCopilotDrawer({
                   key={idx}
                   type="button"
                   disabled={busy}
+                  style={{ '--stagger': Math.min(idx, 6) } as CSSProperties}
                   onClick={() => void onAskQuestion(prompt)}
-                  className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-left text-[11px] font-semibold transition hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]/50 disabled:opacity-50"
+                  className="animate-card-in hover-lift rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-left text-[11px] font-semibold hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]/50 disabled:pointer-events-none disabled:opacity-50"
                 >
                   {prompt}
                 </button>
@@ -385,8 +484,8 @@ export function AiCopilotDrawer({
 
           {/* Conversation Stream */}
           <div className="grid gap-3">
-            {turns.length === 0 && (
-              <div className="card p-5 text-center text-xs text-[var(--muted)]">
+            {turns.length === 0 && !busy && (
+              <div className="card animate-card-in p-5 text-center text-xs text-[var(--muted)]">
                 <div className="font-semibold text-[var(--text)]">
                   {lang === 'uz'
                     ? `${activeModelInfo.displayName} tayyor`
@@ -407,8 +506,8 @@ export function AiCopilotDrawer({
             {turns.map(turn => {
               if (turn.role === 'user') {
                 return (
-                  <div key={turn.id} className="flex justify-end">
-                    <div className="max-w-[85%] rounded-2xl bg-[var(--accent)] px-3.5 py-2 text-xs font-bold text-white shadow-xs">
+                  <div key={turn.id} className="animate-message-in flex justify-end">
+                    <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--accent)] px-3.5 py-2 text-xs font-bold text-white shadow-xs">
                       {turn.text}
                     </div>
                   </div>
@@ -416,12 +515,21 @@ export function AiCopilotDrawer({
               }
 
               const resp = turn.response;
+              const isCopied = copiedTurnId === turn.id;
+              const ratingPending = turn.feedbackStatus === '...';
+
               return (
-                <div key={turn.id} className="card grid gap-2.5 p-3.5">
+                <div key={turn.id} className="card animate-message-in grid gap-2.5 p-3.5">
                   <div className="flex flex-wrap items-center justify-between gap-1.5">
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text)]">
-                        {resp?.source === 'coarena' ? `Coarena · ${resp.model}` : 'Deterministic Fallback'}
+                        {resp?.source === 'coarena'
+                          ? `Coarena · ${resp.model}`
+                          : lang === 'uz'
+                            ? 'Lokal Fallback'
+                            : lang === 'ru'
+                              ? 'Fallback'
+                              : 'Deterministic Fallback'}
                       </span>
                       {turn.latencyMs !== undefined && (
                         <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-bold text-[var(--accent)] tabular-nums">
@@ -439,36 +547,76 @@ export function AiCopilotDrawer({
                       ))}
                     </div>
 
-                    {resp && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void onRateTurn(turn.id, resp.requestId, 'up')}
-                          className={`rounded-lg border px-1.5 py-0.5 text-[11px] font-bold ${
-                            turn.feedback === 'up'
-                              ? 'border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
-                              : 'border-[var(--border)] bg-[var(--surface-2)]'
-                          }`}
-                        >
-                          👍
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void onRateTurn(turn.id, resp.requestId, 'down')}
-                          className={`rounded-lg border px-1.5 py-0.5 text-[11px] font-bold ${
-                            turn.feedback === 'down'
-                              ? 'border-[var(--bad)] bg-[var(--bad-soft)] text-[var(--bad)]'
-                              : 'border-[var(--border)] bg-[var(--surface-2)]'
-                          }`}
-                        >
-                          👎
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyTurn(turn.id, turn.text)}
+                        className={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold transition active:scale-95 ${
+                          isCopied
+                            ? 'animate-scale-in border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
+                            : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        {isCopied
+                          ? lang === 'uz'
+                            ? '✓'
+                            : lang === 'ru'
+                              ? '✓ Скопировано'
+                              : '✓ Copied'
+                          : lang === 'uz'
+                            ? 'Nusxa'
+                            : lang === 'ru'
+                              ? 'Копия'
+                              : 'Copy'}
+                      </button>
+
+                      {resp && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={ratingPending}
+                            aria-label="Helpful"
+                            onClick={() => void onRateTurn(turn.id, resp.requestId, 'up')}
+                            className={`rounded-lg border px-1.5 py-0.5 text-[11px] font-bold transition active:scale-95 disabled:opacity-60 ${
+                              turn.feedback === 'up'
+                                ? 'border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
+                                : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]'
+                            }`}
+                          >
+                            👍
+                          </button>
+                          <button
+                            type="button"
+                            disabled={ratingPending}
+                            aria-label="Not helpful"
+                            onClick={() => void onRateTurn(turn.id, resp.requestId, 'down')}
+                            className={`rounded-lg border px-1.5 py-0.5 text-[11px] font-bold transition active:scale-95 disabled:opacity-60 ${
+                              turn.feedback === 'down'
+                                ? 'border-[var(--bad)] bg-[var(--bad-soft)] text-[var(--bad)]'
+                                : 'border-[var(--border)] bg-[var(--surface-2)] hover:border-[var(--border-strong)]'
+                            }`}
+                          >
+                            👎
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
 
                   {turn.feedbackStatus && (
-                    <div className="text-[10px] font-semibold text-[var(--muted)]">{turn.feedbackStatus}</div>
+                    <div className="flex">
+                      <span
+                        className={`animate-scale-in rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          turn.feedback === 'up'
+                            ? 'border-[var(--good)]/40 bg-[var(--good-soft)] text-[var(--good)]'
+                            : turn.feedback === 'down'
+                              ? 'border-[var(--bad)]/40 bg-[var(--bad-soft)] text-[var(--bad)]'
+                              : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]'
+                        }`}
+                      >
+                        {turn.feedbackStatus}
+                      </span>
+                    </div>
                   )}
 
                   <p className="m-0 whitespace-pre-line text-xs leading-relaxed font-medium text-[var(--text)]">
@@ -479,7 +627,7 @@ export function AiCopilotDrawer({
                     <AgentBlocks
                       blocks={resp.uiBlocks}
                       lang={lang}
-                      onAction={act => void handleActionClick(act)}
+                      onAction={act => handleActionClick(act)}
                       onPinBlock={block => {
                         onPinBlock(block);
                         onStatusBanner(
@@ -496,17 +644,28 @@ export function AiCopilotDrawer({
 
                   {resp && resp.suggestedActions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 border-t border-[var(--border)] pt-2">
-                      {resp.suggestedActions.map((act, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          disabled={Boolean(actionBusyKey)}
-                          onClick={() => void handleActionClick(act)}
-                          className="btn-primary min-h-0 px-2.5 py-1.5 text-[11px]"
-                        >
-                          {act.label}
-                        </button>
-                      ))}
+                      {resp.suggestedActions.map((act, idx) => {
+                        const key = `${act.type}:${act.label}`;
+                        const isBusy = actionBusyKey === key;
+                        const isDone = Boolean(doneActionKeys[key]);
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={Boolean(actionBusyKey)}
+                            onClick={() => void handleActionClick(act)}
+                            className={`min-h-0 px-2.5 py-1.5 text-[11px] ${
+                              isDone
+                                ? 'btn-secondary border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
+                                : 'btn-primary'
+                            }`}
+                          >
+                            {isBusy && <span className="h-2 w-2 animate-ping rounded-full bg-current" />}
+                            {!isBusy && isDone && <span>✓</span>}
+                            <span>{act.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -514,12 +673,30 @@ export function AiCopilotDrawer({
             })}
 
             {busy && (
-              <div className="card p-3.5 text-xs font-bold text-[var(--accent)]">
-                {lang === 'uz'
-                  ? `${activeModelInfo.displayName} MCP vositalarini ishga tushirmoqda...`
-                  : lang === 'ru'
-                    ? `${activeModelInfo.displayName} запускает MCP-инструменты и готовит ответ...`
-                    : `${activeModelInfo.displayName} is running MCP tools and synthesizing...`}
+              <div className="card animate-message-in grid gap-2.5 p-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="ai-pink-orb animate-orb-breathe flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white">
+                    AI
+                  </div>
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--accent)]">
+                    <span>
+                      {lang === 'uz'
+                        ? `${activeModelInfo.displayName} ishlamoqda`
+                        : lang === 'ru'
+                          ? `${activeModelInfo.displayName} думает`
+                          : `${activeModelInfo.displayName} is thinking`}
+                    </span>
+                    <span className="ai-typing-dots" aria-hidden="true">
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                      <span className="typing-dot" />
+                    </span>
+                  </div>
+                </div>
+                <div className="grid gap-1.5">
+                  <div className="skeleton-shimmer h-2.5 w-4/5 rounded-full" />
+                  <div className="skeleton-shimmer h-2.5 w-3/5 rounded-full" />
+                </div>
               </div>
             )}
 
@@ -532,20 +709,21 @@ export function AiCopilotDrawer({
           onSubmit={handleSubmit}
           className="border-t border-[var(--border)] bg-[var(--surface)] p-3"
         >
-          <div className="flex items-center gap-2">
-            <input
+          <div className="flex items-end gap-2">
+            <textarea
               ref={inputRef}
-              type="text"
-              className="input-field min-h-0 flex-1 py-2 text-xs"
+              rows={1}
               value={input}
               onChange={e => setInput(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               placeholder={
                 lang === 'uz'
-                  ? 'Savol yozing (audit, byudjet, xarita, filiallar, dashboard)...'
+                  ? 'Savol yozing (Enter — yuborish)...'
                   : lang === 'ru'
-                    ? 'Спросите AI Copilot (бюджет, аудит, карта, дашборд)...'
-                    : 'Ask AI Copilot (budgets, audit, map, branches, dashboard)...'
+                    ? 'Спросите AI Copilot (Enter — отправить)...'
+                    : 'Ask AI Copilot (Enter to send)...'
               }
+              className="input-field max-h-28 min-h-[36px] flex-1 resize-none py-2 text-xs leading-snug"
             />
             <button
               type="submit"

@@ -1,6 +1,8 @@
 {
   "name": "@uzbite/desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "UzBite Business Desktop — Analytics & AI Financial Audit",
+  "author": "UzBite",
   "private": true,
   "type": "module",
   "main": "electron/main.mjs",
@@ -9,6 +11,52 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --port 8082 --strictPort",
-    "desktop": "node electron/launch.mjs"
+    "desktop": "node electron/launch.mjs",
+    "prepare:runtime": "node ../../scripts/prepare-desktop-runtime.mjs",
+    "dist": "npm run build && npm run prepare:runtime && node ../../scripts/dist-desktop.mjs"
+  },
+  "build": {
+    "appId": "uz.uzbite.business.desktop",
+    "productName": "UzBite Business",
+    "npmRebuild": false,
+    "compression": "normal",
+    "afterPack": "./electron/after-pack.mjs",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/main.mjs",
+      "electron/preload.cjs",
+      "electron/bootstrap.mjs",
+      "build/icon.png",
+      "build/icon.ico",
+      "package.json",
+      "!**/node_modules/**",
+      "!**/*.tsbuildinfo"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "UzBite-Business-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "UzBite-Business-${version}-setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

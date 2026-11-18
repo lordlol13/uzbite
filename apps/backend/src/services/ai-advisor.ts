@@ -9,7 +9,7 @@ import {
   type OcrExpenseDraft,
 } from '@uzbite/shared';
 import { env } from '../config/env.js';
-import { callCoarenaJson } from './coarena.js';
+import { callCoarenaJson, extractJsonFromText } from './coarena.js';
 import {
   buildHeuristicOptimizationReport,
   calculateDeduplicatedSavings,
@@ -39,17 +39,18 @@ async function callLLMJson(
   prompt: string,
   imagePart?: { base64: string; mimeType: string },
 ): Promise<unknown | null> {
-  if (env.COARENA_API_KEY) {
+  if (env.COARENA_API_KEY?.trim()) {
     const coarena = await callCoarenaJson(prompt, imagePart);
     if (coarena?.data) return coarena.data;
   }
 
-  if (!env.GEMINI_API_KEY) return null;
+  const geminiKey = env.GEMINI_API_KEY?.trim();
+  if (!geminiKey) return null;
   const parts: Array<Record<string, unknown>> = [{ text: prompt }];
   if (imagePart) {
     parts.push({ inlineData: { data: imagePart.base64, mimeType: imagePart.mimeType } });
   }
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(env.GEMINI_API_KEY)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(geminiKey)}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 14_000);
   try {
@@ -71,7 +72,7 @@ async function callLLMJson(
     };
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) return null;
-    return JSON.parse(text) as unknown;
+    return extractJsonFromText(text);
   } catch {
     return null;
   } finally {
@@ -84,7 +85,7 @@ export async function generateAiOptimizationReport(
   findings: Finding[],
 ): Promise<AiOptimizationReport> {
   const baseline = buildHeuristicOptimizationReport(overview, findings);
-  if ((!env.COARENA_API_KEY && !env.GEMINI_API_KEY) || findings.length === 0) return baseline;
+  if ((!env.COARENA_API_KEY?.trim() && !env.GEMINI_API_KEY?.trim()) || findings.length === 0) return baseline;
 
   const priorityExpenseSummary = computePriorityExpenseSummary({ overview });
 
@@ -190,7 +191,7 @@ export async function extractInvoiceDraftFromTextOrImage(input: {
   const rawText = (input.rawText ?? '').trim();
   const today = new Date().toISOString().slice(0, 10);
 
-  if ((env.COARENA_API_KEY || env.GEMINI_API_KEY) && (rawText.length > 10 || input.imageBase64)) {
+  if ((env.COARENA_API_KEY?.trim() || env.GEMINI_API_KEY?.trim()) && (rawText.length > 10 || input.imageBase64)) {
     const prompt = [
       'Extract restaurant expense fields from this invoice/receipt and return JSON:',
       '{ "supplierName": string, "invoiceNumber": string, "spentAt": "YYYY-MM-DD", "category": one of ' + EXPENSE_CATEGORIES.join('|') + ', "itemName": string, "quantity": number, "unit": string, "unitPrice": number, "amount": number }.',
@@ -298,7 +299,7 @@ export async function answerFinancialQuestion(params: {
   const periodUz = resolvedPeriod ? `${resolvedPeriod.label.uz} (${periodIsoLabel})` : `${formatDateRangeLabel(periodFrom, periodTo, 'uz')} (${periodIsoLabel})`;
   const periodEn = resolvedPeriod ? `${resolvedPeriod.label.en} (${periodIsoLabel})` : `${formatDateRangeLabel(periodFrom, periodTo, 'en')} (${periodIsoLabel})`;
 
-  if (env.COARENA_API_KEY || env.GEMINI_API_KEY) {
+  if (env.COARENA_API_KEY?.trim() || env.GEMINI_API_KEY?.trim()) {
     const context = {
       restaurantName,
       period: { ...overview.period, fromDate: periodFrom, toDate: periodTo },

@@ -10,7 +10,7 @@ const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
 function log(step, message) {
-  console.log(`[UzBite] [${step}] ${message}`);
+  console.log(`[UzBite Business] [${step}] ${message}`);
 }
 
 function runSync(cmd, args) {
@@ -70,7 +70,7 @@ async function waitFor(fn, timeoutMs, intervalMs = 500) {
 }
 
 function launchWindowsWindow(title, command, minimized = true) {
-  const wrapped = `${command} || (echo. & echo [UzBite] Process exited with an error. & pause)`;
+  const wrapped = `${command} || (echo. & echo [UzBite Business] Process exited with an error. & pause)`;
   const startArgs = ['/d', '/c', 'start', title];
   if (minimized) startArgs.push('/min');
   startArgs.push('cmd.exe', '/c', wrapped);
@@ -83,56 +83,44 @@ function launchWindowsWindow(title, command, minimized = true) {
   child.unref();
 }
 
-function launchWindowsExe(exePath) {
-  const child = spawn(exePath, [], {
-    cwd: root,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: false,
-  });
-  child.unref();
-}
-
 async function ensureEnvironmentAndBuilds(apiAlreadyUp) {
-  log('1/6', 'Checking .env, dependencies, and build artifacts...');
+  log('1/5', 'Checking .env, dependencies, and build artifacts...');
 
   if (!existsSync(resolve(root, '.env'))) {
-    log('1/6', 'Creating local .env via scripts/setup-local.mjs...');
+    log('1/5', 'Creating local .env via scripts/setup-local.mjs...');
     runSync(process.execPath, [resolve(root, 'scripts/setup-local.mjs')]);
   }
   loadEnv({ path: resolve(root, '.env'), quiet: true });
 
   if (!apiAlreadyUp) {
     if (!existsSync(resolve(root, 'node_modules/.prisma/client'))) {
-      log('1/6', 'Generating Prisma Client...');
+      log('1/5', 'Generating Prisma Client...');
       runSync(npxBin, ['prisma', 'generate']);
     }
 
     const requiredDist = [
       'apps/backend/dist/index.js',
       'apps/desktop/dist/index.html',
-      'apps/restaurant-desktop/dist/index.html',
-      'apps/restaurant-desktop/dist-electron/main.js',
       'packages/finance-mcp/dist/index.js',
     ];
     if (requiredDist.some(rel => !existsSync(resolve(root, rel)))) {
-      log('1/6', 'Building workspaces...');
+      log('1/5', 'Building workspaces...');
       runSync(npmBin, ['run', 'build']);
     }
   }
 }
 
 async function ensureDatabaseReady(apiAlreadyUp) {
-  log('2/6', 'Checking local PostgreSQL (127.0.0.1:5432)...');
+  log('2/5', 'Checking local PostgreSQL (127.0.0.1:5432)...');
   const pgUp = await isPortOpen(5432);
   if (!pgUp) {
-    log('2/6', 'Starting embedded PostgreSQL...');
+    log('2/5', 'Starting embedded PostgreSQL...');
     await startLocalPostgres();
   } else {
-    log('2/6', 'PostgreSQL is already running on 127.0.0.1:5432.');
+    log('2/5', 'PostgreSQL is already running on 127.0.0.1:5432.');
   }
 
-  log('3/6', 'Checking Prisma migrations and demo data...');
+  log('3/5', 'Checking Prisma migrations and demo data...');
   if (!apiAlreadyUp) {
     runSync(npxBin, ['prisma', 'migrate', 'deploy']);
     const { PrismaClient } = await import('@prisma/client');
@@ -143,34 +131,22 @@ async function ensureDatabaseReady(apiAlreadyUp) {
         prisma.expense.count(),
       ]);
       if (restaurants === 0 || expenses === 0) {
-        log('3/6', 'Database is empty — seeding demo catalog and analytics...');
+        log('3/5', 'Database is empty — seeding demo branches and analytics...');
         await prisma.$disconnect();
         runSync(npmBin, ['run', 'db:seed']);
       } else {
-        log('3/6', `Database ready (${restaurants} restaurants, ${expenses} expenses).`);
+        log('3/5', `Database ready (${restaurants} branches, ${expenses} expenses).`);
       }
     } finally {
       await prisma.$disconnect();
-    }
-  } else {
-    const restaurants = await fetchJson('http://127.0.0.1:8081/api/restaurants');
-    const items = restaurants.data?.data?.items;
-    const count = Array.isArray(items)
-      ? items.length
-      : Number(restaurants.data?.data?.total ?? 0);
-    if (count === 0) {
-      log('3/6', 'Seeding demo catalog and analytics...');
-      runSync(npmBin, ['run', 'db:seed']);
-    } else {
-      log('3/6', `Database already seeded (${count} restaurants active).`);
     }
   }
 }
 
 async function ensureBackendRunning(apiAlreadyUp) {
-  log('4/6', 'Checking Backend API + Socket.IO (http://127.0.0.1:8081)...');
+  log('4/5', 'Checking Backend API (http://127.0.0.1:8081)...');
   if (apiAlreadyUp) {
-    log('4/6', 'Backend API is already running on http://127.0.0.1:8081.');
+    log('4/5', 'Backend API is already running on http://127.0.0.1:8081.');
     return;
   }
 
@@ -180,13 +156,13 @@ async function ensureBackendRunning(apiAlreadyUp) {
       return health.ok && health.data?.data?.database === 'connected';
     }, 5_000);
     if (recovered) {
-      log('4/6', 'Backend API is ready on http://127.0.0.1:8081.');
+      log('4/5', 'Backend API is ready on http://127.0.0.1:8081.');
       return;
     }
     throw new Error('Port 8081 is already occupied by an unhealthy or unrelated process. Stop it and retry.');
   }
 
-  launchWindowsWindow('UzBite Backend Server (keep open)', 'npm run dev:server', true);
+  launchWindowsWindow('UzBite Business Backend Server (keep open)', 'npm run dev:server', true);
   const ok = await waitFor(async () => {
     const health = await fetchJson('http://127.0.0.1:8081/api/health');
     return health.ok && health.data?.data?.database === 'connected';
@@ -195,11 +171,11 @@ async function ensureBackendRunning(apiAlreadyUp) {
   if (!ok) {
     throw new Error('Backend API did not become healthy on http://127.0.0.1:8081/api/health within 90s.');
   }
-  log('4/6', 'Backend API is ready.');
+  log('4/5', 'Backend API is ready.');
 }
 
 async function launchBusinessDesktop() {
-  log('5/6', 'Starting UzBite Business (Analytics & AI Financial Controller)...');
+  log('5/5', 'Starting UzBite Business (Analytics & AI Financial Audit)...');
   const alreadyUp = await isHttpUp('http://127.0.0.1:8082');
   launchWindowsWindow('UzBite Business Desktop', 'npm run desktop -w @uzbite/desktop', true);
   if (!alreadyUp) {
@@ -208,63 +184,12 @@ async function launchBusinessDesktop() {
       throw new Error('UzBite Business UI did not respond on http://127.0.0.1:8082 within 45s.');
     }
   }
-  log('5/6', 'UzBite Business Desktop launched (http://127.0.0.1:8082).');
-}
-
-function isRestaurantProcessRunning() {
-  if (process.platform !== 'win32') return false;
-  try {
-    const out = execFileSync(
-      'tasklist',
-      ['/FI', 'IMAGENAME eq UzBite Restaurant.exe', '/NH'],
-      { encoding: 'utf8', windowsHide: true },
-    );
-    return out.includes('UzBite Restaurant.exe');
-  } catch {
-    return false;
-  }
-}
-
-async function launchRestaurantDesktop() {
-  log('6/6', 'Starting UzBite Restaurant Desktop...');
-  const unpackedExe = resolve(root, 'apps/restaurant-desktop/release/win-unpacked/UzBite Restaurant.exe');
-  const portableExe = resolve(root, 'apps/restaurant-desktop/release/UzBite-Restaurant-1.0.0-portable.exe');
-
-  if (existsSync(unpackedExe)) {
-    launchWindowsExe(unpackedExe);
-    const up = await waitFor(() => isHttpUp('http://127.0.0.1:18083'), 25_000);
-    if (!up && !isRestaurantProcessRunning()) {
-      throw new Error('UzBite Restaurant.exe failed to stay running or listen on http://127.0.0.1:18083.');
-    }
-    log('6/6', 'UzBite Restaurant.exe launched (http://127.0.0.1:18083).');
-    return;
-  }
-  if (existsSync(portableExe)) {
-    launchWindowsExe(portableExe);
-    const up = await waitFor(() => isHttpUp('http://127.0.0.1:18083'), 35_000);
-    if (!up && !isRestaurantProcessRunning()) {
-      throw new Error('UzBite-Restaurant-1.0.0-portable.exe failed to start within 35s.');
-    }
-    log('6/6', 'UzBite-Restaurant-portable.exe launched.');
-    return;
-  }
-
-  launchWindowsWindow('UzBite Restaurant Desktop', 'npm run desktop:restaurant', true);
-  const devUp = await waitFor(() => isHttpUp('http://127.0.0.1:8083'), 45_000);
-  if (!devUp) {
-    throw new Error('UzBite Restaurant Vite dev server did not respond on http://127.0.0.1:8083 within 45s.');
-  }
-  log('6/6', 'UzBite Restaurant Electron dev launched (http://127.0.0.1:8083).');
+  log('5/5', 'UzBite Business Desktop launched (http://127.0.0.1:8082).');
 }
 
 async function verifyAllSystems() {
   const health = await fetchJson('http://127.0.0.1:8081/api/health');
   const bizLogin = await fetchJson('http://127.0.0.1:8081/api/business/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ demo: true }),
-  });
-  const restLogin = await fetchJson('http://127.0.0.1:8081/api/restaurant-account/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ demo: true }),
@@ -285,14 +210,13 @@ async function verifyAllSystems() {
 
   console.log('');
   console.log('============================================================');
-  console.log('  UzBite Platform — ALL SYSTEMS RUNNING');
+  console.log('  UzBite Business — ALL SYSTEMS RUNNING');
   console.log('============================================================');
   console.log(`  PostgreSQL : 127.0.0.1:5432 (${health.data?.data?.database ?? 'unknown'})`);
   console.log(`  Backend API: http://127.0.0.1:8081 (health=${health.status})`);
   console.log(`  Business UI: http://127.0.0.1:8082 + Electron Window`);
-  console.log(`  Restaurant : UzBite Restaurant Desktop Window`);
   console.log(`  AI & MCP   : ${toolsCount} financial tools active (packages/finance-mcp/dist/index.js)`);
-  console.log(`  Demo Auth  : owner@uzbite.uz / UzBiteBusiness2026! (Business=${bizLogin.ok ? 'OK' : 'ERR'}, Restaurant=${restLogin.ok ? 'OK' : 'ERR'})`);
+  console.log(`  Demo Auth  : owner@uzbite.uz / UzBiteBusiness2026! (Business=${bizLogin.ok ? 'OK' : 'ERR'})`);
   console.log('============================================================');
   console.log('');
 }
@@ -305,11 +229,10 @@ async function main() {
   await ensureDatabaseReady(apiAlreadyUp);
   await ensureBackendRunning(apiAlreadyUp);
   await launchBusinessDesktop();
-  await launchRestaurantDesktop();
   await verifyAllSystems();
 }
 
 main().catch(error => {
-  console.error('[UzBite] Startup failed:', error instanceof Error ? error.message : String(error));
+  console.error('[UzBite Business] Startup failed:', error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

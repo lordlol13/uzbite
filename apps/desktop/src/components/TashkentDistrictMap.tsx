@@ -98,6 +98,7 @@ export function TashkentDistrictMap({
   minimal?: boolean;
 }) {
   const [hoveredId, setHoveredId] = useState<TashkentDistrictId | null>(null);
+  const [hoveredBranchId, setHoveredBranchId] = useState<string | null>(null);
   const [internalHeat, setInternalHeat] = useState(true);
   const [internalRadius, setInternalRadius] = useState(true);
   const heatGradId = useId().replace(/:/g, '');
@@ -113,6 +114,8 @@ export function TashkentDistrictMap({
 
   const activeId = hoveredId ?? (selectedDistrictId || null);
   const activeStat = activeId ? statMap.get(activeId) : null;
+  const hoveredBranch = hoveredBranchId ? branches.find(b => b.id === hoveredBranchId) : null;
+  const ordersUnit = lang === 'uz' ? 'buyurtma' : lang === 'ru' ? 'зак.' : 'orders';
 
   const formatMetric = (val: number) => {
     if (metric === 'orders') return `${val}`;
@@ -127,13 +130,13 @@ export function TashkentDistrictMap({
             <button
               type="button"
               onClick={toggleHeat}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-all duration-150 ${
                 showHeatLayer
-                  ? 'border-[#ec5180]/50 bg-[var(--accent-soft)] text-[var(--accent)]'
-                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]'
+                  ? 'border-[#ec5180]/50 bg-[var(--accent-soft)] text-[var(--accent)] shadow-xs'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
               }`}
             >
-              <span className="h-2 w-2 rounded-full bg-[#ec5180]" />
+              <span className={`h-2 w-2 rounded-full transition-transform ${showHeatLayer ? 'scale-110 bg-[#ec5180]' : 'bg-[var(--muted-soft)]'}`} />
               {lang === 'uz' ? 'Issiqlik xaritasi' : lang === 'ru' ? 'Тепловой слой' : 'Heatmap Grid'}
               {heatmapCells.length > 0 && <span className="opacity-75">({heatmapCells.length})</span>}
             </button>
@@ -141,21 +144,33 @@ export function TashkentDistrictMap({
             <button
               type="button"
               onClick={toggleRadius}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium transition-all duration-150 ${
                 showServiceRadius
-                  ? 'border-[#36b89a]/50 bg-[var(--mint-soft)] text-[var(--mint)]'
-                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]'
+                  ? 'border-[#36b89a]/50 bg-[var(--mint-soft)] text-[var(--mint)] shadow-xs'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]'
               }`}
             >
-              <span className="h-2 w-2 rounded-full border border-[#36b89a]" />
+              <span className={`h-2 w-2 rounded-full border ${showServiceRadius ? 'border-[#36b89a] bg-[#36b89a]/40' : 'border-[var(--muted-soft)]'}`} />
               {lang === 'uz' ? '3.5 km radius' : lang === 'ru' ? 'Радиус 3.5 км' : '3.5km Coverage'}
             </button>
           </div>
 
-          {activeStat && (
-            <div className="flex flex-wrap items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-xs tabular-nums">
-              <strong className="font-semibold">{activeStat.name[lang]}</strong>
-              <span>{activeStat.orders} ord ({activeStat.sharePct}%)</span>
+          {hoveredBranch ? (
+            <div
+              key={`branch-${hoveredBranch.id}`}
+              className="animate-scale-in flex flex-wrap items-center gap-2 rounded-full border border-[var(--accent-2)]/40 bg-[var(--surface-2)] px-3 py-1 text-xs tabular-nums shadow-xs"
+            >
+              <span className="h-2 w-2 rounded-full bg-[#8172ff]" />
+              <strong className="font-semibold text-[var(--text)]">{hoveredBranch.name}</strong>
+              <span className="text-[var(--muted)]">{hoveredBranch.orders} {ordersUnit}</span>
+            </div>
+          ) : activeStat ? (
+            <div
+              key={activeStat.districtId}
+              className="animate-scale-in flex flex-wrap items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-xs tabular-nums shadow-xs"
+            >
+              <strong className="font-semibold text-[var(--text)]">{activeStat.name[lang]}</strong>
+              <span className="text-[var(--muted)]">{activeStat.orders} {ordersUnit} ({activeStat.sharePct}%)</span>
               <span className="font-semibold text-[var(--accent)]">{fmtMoney(activeStat.revenue, lang)}</span>
               <span
                 className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
@@ -168,7 +183,7 @@ export function TashkentDistrictMap({
                 {activeStat.growthPct.toFixed(1)}%
               </span>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -216,12 +231,33 @@ export function TashkentDistrictMap({
                 points={pointsStr}
                 fill={fill}
                 stroke={isSelected ? 'var(--accent)' : isHovered ? 'var(--accent-2)' : 'var(--border-strong)'}
-                strokeWidth={isSelected ? 2.4 : isHovered ? 1.8 : 1.1}
+                strokeWidth={isSelected ? 2.5 : isHovered ? 1.9 : 1.1}
                 strokeLinejoin="round"
+                role={onSelectDistrict ? 'button' : undefined}
+                tabIndex={onSelectDistrict && !minimal ? 0 : undefined}
+                aria-label={onSelectDistrict ? shape.name[lang] : undefined}
                 onMouseEnter={() => setHoveredId(shape.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 onClick={() => onSelectDistrict?.(shape.id)}
-                className={onSelectDistrict ? 'cursor-pointer transition-colors' : undefined}
+                onKeyDown={
+                  onSelectDistrict
+                    ? e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectDistrict(shape.id);
+                        }
+                      }
+                    : undefined
+                }
+                style={{
+                  transition: 'fill 0.22s ease, stroke 0.18s ease, stroke-width 0.18s ease, filter 0.22s ease',
+                  filter: !minimal && isSelected
+                    ? 'drop-shadow(0 0 8px rgba(236, 81, 128, 0.38))'
+                    : !minimal && isHovered
+                      ? 'drop-shadow(0 0 6px rgba(129, 114, 255, 0.32))'
+                      : undefined,
+                }}
+                className={onSelectDistrict ? 'cursor-pointer outline-none' : undefined}
               />
             );
           })}
@@ -232,14 +268,15 @@ export function TashkentDistrictMap({
             {TASHKENT_DISTRICTS.map(shape => {
               const stat = statMap.get(shape.id);
               const [cx, cy] = project(shape.center.longitude, shape.center.latitude);
+              const isHighlighted = selectedDistrictId === shape.id || hoveredId === shape.id;
               return (
-                <g key={`label-${shape.id}`}>
+                <g key={`label-${shape.id}`} style={{ transition: 'opacity 0.18s ease', opacity: hoveredId && !isHighlighted ? 0.72 : 1 }}>
                   <text
                     x={cx}
                     y={cy - 3}
                     textAnchor="middle"
-                    fontSize="10.5"
-                    fontWeight="600"
+                    fontSize={isHighlighted ? '11' : '10.5'}
+                    fontWeight={isHighlighted ? '700' : '600'}
                     fill="var(--text)"
                     stroke="var(--bg)"
                     strokeWidth="2.8"
@@ -255,7 +292,7 @@ export function TashkentDistrictMap({
                       textAnchor="middle"
                       fontSize="9.5"
                       fontWeight="600"
-                      fill="var(--text)"
+                      fill={isHighlighted ? 'var(--accent)' : 'var(--text)'}
                       stroke="var(--bg)"
                       strokeWidth="2.6"
                       strokeLinejoin="round"
@@ -272,8 +309,11 @@ export function TashkentDistrictMap({
         )}
 
         {/* Privacy-safe ~500m Order Heatmap Grid Layer */}
-        {!minimal && showHeatLayer && heatmapCells.length > 0 && (
-          <g className="pointer-events-none">
+        {!minimal && heatmapCells.length > 0 && (
+          <g
+            className="pointer-events-none transition-opacity duration-300"
+            style={{ opacity: showHeatLayer ? 1 : 0 }}
+          >
             {heatmapCells.map((cell, idx) => {
               const [hx, hy] = project(cell.lngCenter, cell.latCenter);
               const ratio = Math.max(0.2, Math.min(1, cell.orders / maxHeatOrders));
@@ -306,8 +346,11 @@ export function TashkentDistrictMap({
         )}
 
         {/* Branch Service-Area Coverage Radii (~3.5 km) */}
-        {!minimal && showServiceRadius && (
-          <g className="pointer-events-none">
+        {!minimal && (
+          <g
+            className="pointer-events-none transition-opacity duration-300"
+            style={{ opacity: showServiceRadius ? 1 : 0 }}
+          >
             {branches.map(branch => {
               const [bx, by] = project(branch.longitude, branch.latitude);
               return (
@@ -331,32 +374,39 @@ export function TashkentDistrictMap({
         {/* Branch Markers (pulsing Dribbble violet radar pins) */}
         {branches.map((branch, idx) => {
           const [bx, by] = project(branch.longitude, branch.latitude);
+          const isBranchHovered = !minimal && hoveredBranchId === branch.id;
           return (
-            <g key={branch.id} className="pointer-events-none">
+            <g
+              key={branch.id}
+              className={minimal ? 'pointer-events-none' : 'cursor-pointer'}
+              onMouseEnter={!minimal ? () => setHoveredBranchId(branch.id) : undefined}
+              onMouseLeave={!minimal ? () => setHoveredBranchId(null) : undefined}
+            >
               <circle
                 cx={bx}
                 cy={by}
-                r={minimal ? 16 : 13}
+                r={minimal ? 16 : isBranchHovered ? 18 : 13}
                 fill="rgba(129, 114, 255, 0.24)"
                 className={minimal && idx === 0 ? 'animate-radar-pulse' : undefined}
-                style={{ transformOrigin: `${bx}px ${by}px` }}
+                style={{ transformOrigin: `${bx}px ${by}px`, transition: 'r 0.2s ease' }}
               />
               <circle
                 cx={bx}
                 cy={by}
-                r={minimal ? 6.5 : 5.5}
+                r={minimal ? 6.5 : isBranchHovered ? 7 : 5.5}
                 fill="#8172ff"
                 stroke="#ffffff"
                 strokeWidth="2"
+                style={{ transition: 'r 0.15s ease' }}
               >
-                <title>{`${branch.name} (${branch.orders} orders)`}</title>
+                <title>{`${branch.name} (${branch.orders} ${ordersUnit})`}</title>
               </circle>
               {!minimal && (
                 <text
-                  x={bx + 8}
+                  x={bx + 9}
                   y={by + 3}
-                  fontSize="9.5"
-                  fontWeight="600"
+                  fontSize={isBranchHovered ? '10.5' : '9.5'}
+                  fontWeight={isBranchHovered ? '700' : '600'}
                   fill="var(--text)"
                   stroke="var(--surface)"
                   strokeWidth="2.6"

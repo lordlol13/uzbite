@@ -344,8 +344,247 @@ body,
   animation: uz-spin-slow 7s linear infinite;
 }
 
-.animate-word-blur {
+  .animate-word-blur {
   animation: uz-word-blur-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ==========================================================================
+   Shared GPU-Accelerated Page, Card, Drawer & AI Motion Utilities
+   Exported for use across App.tsx, AgentPage, AiCopilotDrawer, AgentBlocks,
+   and all secondary pages (@ui-pages):
+   - .animate-page-enter     : Tab/page entrance fade + translate3d(0, 10px, 0)
+   - .animate-card-in        : Card/list reveal (uses --stagger or .stagger-1..8)
+   - .stagger-1 .. .stagger-8: Stagger delay steps (45ms * N)
+   - .animate-slide-up       : Modals, inline forms, banners, floating bars
+   - .animate-scale-in       : Popovers, badges, confirmation pills
+   - .animate-drawer-in      : Right-side drawer slide-in
+   - .animate-backdrop-in    : Modal/drawer backdrop fade-in
+   - .animate-message-in     : AI chat message bubble reveal
+   - .animate-progress-fill  : Horizontal progress/bar scaleX reveal
+   - .skeleton-shimmer       : GPU-accelerated skeleton loading sweep
+   - .ai-typing-dots / .typing-dot : 3-dot animated AI thinking indicator
+   - .hover-lift             : Subtle hover elevation + active press micro-interaction
+   ========================================================================== */
+
+@keyframes uz-page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes uz-card-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0) scale(0.988);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uz-slide-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes uz-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes uz-drawer-in {
+  from {
+    opacity: 0.7;
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes uz-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes uz-message-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes uz-progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes uz-typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.32;
+    transform: translate3d(0, 0, 0) scale(0.85);
+  }
+  30% {
+    opacity: 1;
+    transform: translate3d(0, -3px, 0) scale(1.1);
+  }
+}
+
+@keyframes uz-shimmer-sweep {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+.animate-page-enter {
+  animation: uz-page-enter 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
+}
+
+.animate-card-in {
+  animation: uz-card-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--stagger, 0) * 45ms);
+  will-change: opacity, transform;
+}
+
+.animate-slide-up {
+  animation: uz-slide-up 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-scale-in {
+  animation: uz-scale-in 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-drawer-in {
+  animation: uz-drawer-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity;
+}
+
+.animate-backdrop-in {
+  animation: uz-backdrop-in 0.22s ease-out both;
+}
+
+.animate-message-in {
+  animation: uz-message-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-progress-fill {
+  transform-origin: left center;
+  animation: uz-progress-fill 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stagger-1 { --stagger: 1; }
+.stagger-2 { --stagger: 2; }
+.stagger-3 { --stagger: 3; }
+.stagger-4 { --stagger: 4; }
+.stagger-5 { --stagger: 5; }
+.stagger-6 { --stagger: 6; }
+.stagger-7 { --stagger: 7; }
+.stagger-8 { --stagger: 8; }
+
+.hover-lift {
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.hover-lift:hover:not(:disabled) {
+  transform: translate3d(0, -2px, 0);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.12);
+}
+
+.hover-lift:active:not(:disabled) {
+  transform: translate3d(0, 0, 0) scale(0.99);
+}
+
+.ai-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--accent);
+  animation: uz-typing-dot 1.2s ease-in-out infinite;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.38) 50%,
+    transparent 100%
+  );
+  transform: translate3d(-100%, 0, 0);
+  animation: uz-shimmer-sweep 1.35s ease-in-out infinite;
+}
+
+[data-theme='dark'] .skeleton-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
 }
 
 .ai-grid-backdrop {
@@ -385,8 +624,25 @@ body,
   .animate-orb-breathe,
   .animate-orb-halo,
   .animate-spin-slow,
-  .animate-word-blur {
+  .animate-word-blur,
+  .animate-page-enter,
+  .animate-card-in,
+  .animate-slide-up,
+  .animate-scale-in,
+  .animate-drawer-in,
+  .animate-backdrop-in,
+  .animate-message-in,
+  .animate-progress-fill,
+  .typing-dot,
+  .skeleton-shimmer::after {
     animation: none !important;
+  }
+
+  .hover-lift,
+  .hover-lift:hover:not(:disabled),
+  .hover-lift:active:not(:disabled) {
+    transform: none !important;
+    transition: none !important;
   }
 }
 

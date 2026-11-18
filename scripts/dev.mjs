@@ -4,13 +4,12 @@ import { startLocalPostgres } from './local-postgres.mjs';
 
 let stopDatabase;
 try {
-  // Wait for PostgreSQL before starting backend & desktop workspaces.
+  // Wait for PostgreSQL before starting backend & UzBite Business desktop workspaces.
   stopDatabase = await startLocalPostgres();
   const { result } = concurrently(
     [
       { command: 'npm run dev -w @uzbite/backend', name: 'api', prefixColor: 'yellow' },
-      { command: 'npm run dev -w @uzbite/desktop', name: 'analytics', prefixColor: 'magenta' },
-      { command: 'npm run dev -w @uzbite/restaurant-desktop', name: 'restaurant', prefixColor: 'cyan' },
+      { command: 'npm run dev -w @uzbite/desktop', name: 'business', prefixColor: 'magenta' },
     ],
     { cwd: resolve(import.meta.dirname, '..'), killOthersOn: ['success', 'failure'] },
   );

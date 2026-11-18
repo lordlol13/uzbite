@@ -575,3 +575,283 @@ export function AiInsightOrbCard({
     </div>
   );
 }
+
+/* Additional shared icons and UI primitives for secondary pages */
+
+export function IconCheck({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </SvgIcon>
+  );
+}
+
+export function IconX({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </SvgIcon>
+  );
+}
+
+export function IconSearch({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </SvgIcon>
+  );
+}
+
+export function IconPlus({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M12 5v14M5 12h14" />
+    </SvgIcon>
+  );
+}
+
+export function IconDownload({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </SvgIcon>
+  );
+}
+
+export function IconPrinter({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <polyline points="6 9 6 2 18 2 18 9" />
+      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+      <rect width="12" height="8" x="6" y="14" />
+    </SvgIcon>
+  );
+}
+
+export function IconMapPin({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </SvgIcon>
+  );
+}
+
+export function IconBuilding({ size = 15, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <rect width="16" height="20" x="4" y="2" rx="2" />
+      <path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01" />
+    </SvgIcon>
+  );
+}
+
+export function IconClock({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </SvgIcon>
+  );
+}
+
+export function IconTrash({ size = 13, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+    </SvgIcon>
+  );
+}
+
+export function IconEdit({ size = 13, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </SvgIcon>
+  );
+}
+
+export function IconArrowUpDown({ size = 12, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="m21 16-4 4-4-4M17 20V4M3 8l4-4 4 4M7 4v16" />
+    </SvgIcon>
+  );
+}
+
+export function IconChevronDown({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="m6 9 6 6 6-6" />
+    </SvgIcon>
+  );
+}
+
+export function IconEye({ size = 15, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </SvgIcon>
+  );
+}
+
+export function IconEyeOff({ size = 15, className = '' }: { size?: number; className?: string }) {
+  return (
+    <SvgIcon size={size} className={className}>
+      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </SvgIcon>
+  );
+}
+
+export function IconSpinner({ size = 14, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      className={`animate-spin ${className}`}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function SkeletonCard({
+  lines = 3,
+  className = '',
+}: {
+  lines?: number;
+  className?: string;
+}) {
+  return (
+    <div className={`card p-5 ${className}`}>
+      <div className="skeleton-shimmer h-3.5 w-28 rounded-full bg-[var(--surface-2)]" />
+      <div className="skeleton-shimmer mt-3 h-7 w-40 rounded-lg bg-[var(--surface-2)]" />
+      <div className="mt-4 grid gap-2">
+        {Array.from({ length: lines }).map((_, idx) => (
+          <div
+            key={idx}
+            className="skeleton-shimmer h-3 rounded-full bg-[var(--surface-2)]"
+            style={{ width: `${Math.max(45, 92 - idx * 14)}%` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonRows({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="grid gap-2.5 py-2">
+      {Array.from({ length: rows }).map((_, idx) => (
+        <div
+          key={idx}
+          className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/50 px-4 py-3"
+        >
+          <div className="flex flex-1 items-center gap-3">
+            <div className="skeleton-shimmer h-8 w-8 shrink-0 rounded-xl bg-[var(--surface-2)]" />
+            <div className="grid flex-1 gap-1.5">
+              <div className="skeleton-shimmer h-3 w-48 max-w-full rounded-full bg-[var(--surface-2)]" />
+              <div className="skeleton-shimmer h-2.5 w-32 max-w-full rounded-full bg-[var(--surface-2)]" />
+            </div>
+          </div>
+          <div className="skeleton-shimmer h-4 w-24 shrink-0 rounded-full bg-[var(--surface-2)]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function EmptyStateCard({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+  className = '',
+}: {
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`animate-fade-up flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)]/45 px-6 py-10 text-center ${className}`}
+    >
+      <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface)] text-[var(--muted)] shadow-xs border border-[var(--border)]">
+        {icon ?? <IconSparkles size={18} />}
+      </div>
+      <div className="text-sm font-semibold text-[var(--text)]">{title}</div>
+      {description && (
+        <p className="mt-1 max-w-md text-xs leading-relaxed text-[var(--muted)]">{description}</p>
+      )}
+      {actionLabel && onAction && (
+        <button type="button" onClick={onAction} className="btn-secondary mt-4 text-xs">
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function AnimatedProgressBar({
+  pct,
+  tone = 'mint',
+  showThumb = true,
+  heightClass = 'h-2.5',
+  delayMs = 0,
+}: {
+  pct: number;
+  tone?: 'mint' | 'warn' | 'bad' | 'pink' | 'violet';
+  showThumb?: boolean;
+  heightClass?: string;
+  delayMs?: number;
+}) {
+  const clamped = Math.max(3, Math.min(100, pct));
+  const styles: Record<typeof tone, { bg: string; thumb: string }> = {
+    mint: { bg: 'linear-gradient(90deg, #8be4cf 0%, #36b89a 100%)', thumb: 'var(--mint)' },
+    warn: { bg: 'linear-gradient(90deg, #fcd34d 0%, #ff8a47 100%)', thumb: 'var(--warn)' },
+    bad: { bg: 'linear-gradient(90deg, #fca5a5 0%, #d54c4f 100%)', thumb: 'var(--bad)' },
+    pink: { bg: 'linear-gradient(90deg, #f9a8c4 0%, #ec5180 100%)', thumb: 'var(--accent)' },
+    violet: { bg: 'linear-gradient(90deg, #b8b0ff 0%, #7d6dfd 100%)', thumb: 'var(--accent-2)' },
+  };
+  const palette = styles[tone];
+
+  return (
+    <div className={`relative w-full rounded-full bg-[var(--surface-2)] ${heightClass}`}>
+      <div
+        className="animate-slider-grow relative h-full rounded-full transition-[width] duration-500 ease-out"
+        style={{
+          width: `${clamped}%`,
+          background: palette.bg,
+          animationDelay: `${delayMs}ms`,
+        }}
+      >
+        {showThumb && (
+          <span
+            className="absolute right-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 translate-x-1/2 rounded-full bg-[var(--surface)] shadow-sm transition-transform duration-200"
+            style={{ border: `2.5px solid ${palette.thumb}` }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

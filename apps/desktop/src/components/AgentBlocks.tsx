@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type {
   AgentClientAction,
   AgentUiBlock,
@@ -143,6 +143,12 @@ function GroupedBarSvg({ items, lang }: { items: ChartItem[]; lang: Language }) 
                 rx={4}
                 fill={fill}
                 opacity={hoveredIdx === null || isHov ? 0.95 : 0.55}
+                className="animate-bar-grow transition-opacity duration-150"
+                style={{
+                  transformBox: 'fill-box',
+                  transformOrigin: 'bottom center',
+                  animationDelay: `${Math.min(idx, 8) * 35}ms`,
+                }}
               >
                 <title>{`${item.label}: ${fmtChartNum(item.value, lang)}${hasSec ? ` (${item.secondaryLabel ?? secLabel}: ${fmtChartNum(sVal, lang)})` : ''}`}</title>
               </rect>
@@ -168,6 +174,12 @@ function GroupedBarSvg({ items, lang }: { items: ChartItem[]; lang: Language }) 
                     rx={4}
                     fill="#94a3b8"
                     opacity={hoveredIdx === null || isHov ? 0.55 : 0.3}
+                    className="animate-bar-grow transition-opacity duration-150"
+                    style={{
+                      transformBox: 'fill-box',
+                      transformOrigin: 'bottom center',
+                      animationDelay: `${Math.min(idx, 8) * 35 + 40}ms`,
+                    }}
                   />
                   <text
                     x={secondaryX + barW / 2}
@@ -493,10 +505,11 @@ function HorizontalBars({ items, lang }: { items: ChartItem[]; lang: Language })
                 />
               )}
               <div
-                className="relative h-full rounded-full transition-all duration-300"
+                className="animate-progress-fill relative h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${pct}%`,
                   backgroundColor: itemColor(item, idx),
+                  animationDelay: `${Math.min(idx, 8) * 45}ms`,
                 }}
               />
             </div>
@@ -511,13 +524,18 @@ function AgentChartBlock({
   block,
   lang,
   pinBtn,
+  staggerStyle,
 }: {
   block: ChartBlock;
   lang: Language;
-  pinBtn: React.ReactNode;
+  pinBtn: ReactNode;
+  staggerStyle?: CSSProperties;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+    <div
+      style={staggerStyle}
+      className="animate-card-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-[var(--border-strong)]"
+    >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
@@ -555,27 +573,85 @@ export function AgentBlocks({
 }: {
   blocks: AgentUiBlock[];
   lang: Language;
-  onAction: (action: AgentClientAction) => void;
+  onAction: (action: AgentClientAction) => Promise<string | void> | void;
   onPinBlock?: (block: AgentUiBlock) => void;
   actionBusyKey?: string | null;
 }) {
+  const [pinnedIds, setPinnedIds] = useState<Record<string, boolean>>({});
+  const [doneActionKeys, setDoneActionKeys] = useState<Record<string, boolean>>({});
+  const [localBusyKey, setLocalBusyKey] = useState<string | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach(t => window.clearTimeout(t));
+    };
+  }, []);
+
+  const effectiveBusyKey = actionBusyKey ?? localBusyKey;
+
+  function handlePinClick(block: AgentUiBlock) {
+    if (!onPinBlock) return;
+    onPinBlock(block);
+    setPinnedIds(prev => ({ ...prev, [block.id]: true }));
+    const timer = window.setTimeout(() => {
+      setPinnedIds(prev => ({ ...prev, [block.id]: false }));
+    }, 2400);
+    timersRef.current.push(timer);
+  }
+
+  async function handleActionTrigger(act: AgentClientAction) {
+    const key = `${act.type}:${act.label}`;
+    setLocalBusyKey(key);
+    try {
+      await onAction(act);
+      setDoneActionKeys(prev => ({ ...prev, [key]: true }));
+      const timer = window.setTimeout(() => {
+        setDoneActionKeys(prev => ({ ...prev, [key]: false }));
+      }, 2400);
+      timersRef.current.push(timer);
+    } finally {
+      setLocalBusyKey(null);
+    }
+  }
+
   return (
     <div className="grid gap-3">
-      {blocks.map(block => {
+      {blocks.map((block, blockIdx) => {
+        const staggerStyle = { '--stagger': Math.min(blockIdx, 8) } as CSSProperties;
+        const isPinned = Boolean(pinnedIds[block.id]);
         const canPin = onPinBlock && block.kind !== 'actions' && block.kind !== 'alert';
         const pinBtn = canPin ? (
           <button
             type="button"
-            onClick={() => onPinBlock(block)}
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] font-bold text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]"
+            onClick={() => handlePinClick(block)}
+            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-bold transition active:scale-95 ${
+              isPinned
+                ? 'animate-scale-in border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
+                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
+            }`}
           >
-            {lang === 'uz' ? '+ Dashboardga biriktirish' : lang === 'ru' ? '+ На дашборд' : '+ Pin to Dashboard'}
+            {isPinned
+              ? lang === 'uz'
+                ? '✓ Biriktirildi'
+                : lang === 'ru'
+                  ? '✓ Закреплено'
+                  : '✓ Pinned'
+              : lang === 'uz'
+                ? '+ Dashboardga biriktirish'
+                : lang === 'ru'
+                  ? '+ На дашборд'
+                  : '+ Pin to Dashboard'}
           </button>
         ) : null;
 
         if (block.kind === 'kpis') {
           return (
-            <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5">
+            <div
+              key={block.id}
+              style={staggerStyle}
+              className="animate-card-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-3.5"
+            >
               <div className="mb-2.5 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold">{block.title ?? 'KPIs'}</span>
                 {pinBtn}
@@ -591,7 +667,11 @@ export function AgentBlocks({
                           ? 'text-[var(--warn)]'
                           : 'text-[var(--text)]';
                   return (
-                    <div key={idx} className="rounded-xl bg-[var(--surface-2)] p-2.5">
+                    <div
+                      key={idx}
+                      style={{ '--stagger': Math.min(idx, 6) } as CSSProperties}
+                      className="animate-card-in hover-lift rounded-xl border border-transparent bg-[var(--surface-2)] p-2.5 hover:border-[var(--border-strong)]"
+                    >
                       <div className="text-[11px] font-semibold text-[var(--muted)]">{item.label}</div>
                       <div className={`mt-1 text-sm font-semibold tabular-nums ${toneCls}`}>{item.value}</div>
                       {item.sublabel && (
@@ -612,22 +692,44 @@ export function AgentBlocks({
               : block.severity === 'warning'
                 ? 'border-[var(--warn)] bg-[var(--warn-soft)] text-[var(--warn)]'
                 : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)]';
+          const badge = block.severity === 'critical' ? '!' : block.severity === 'warning' ? '⚠' : 'i';
           return (
-            <div key={block.id} className={`rounded-2xl border p-3.5 ${style}`}>
-              <div className="text-xs font-semibold">{block.title}</div>
-              <p className="mt-1 text-xs leading-relaxed opacity-90">{block.body}</p>
+            <div
+              key={block.id}
+              style={staggerStyle}
+              className={`animate-card-in rounded-2xl border p-3.5 ${style}`}
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-current text-[10px] font-bold">
+                  {badge}
+                </span>
+                <span>{block.title}</span>
+              </div>
+              <p className="mt-1 mb-0 text-xs leading-relaxed opacity-90">{block.body}</p>
             </div>
           );
         }
 
         if (block.kind === 'chart') {
-          return <AgentChartBlock key={block.id} block={block} lang={lang} pinBtn={pinBtn} />;
+          return (
+            <AgentChartBlock
+              key={block.id}
+              block={block}
+              lang={lang}
+              pinBtn={pinBtn}
+              staggerStyle={staggerStyle}
+            />
+          );
         }
 
         if (block.kind === 'table') {
           const hl = new Set(block.highlightRowIndices ?? []);
           return (
-            <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div
+              key={block.id}
+              style={staggerStyle}
+              className="animate-card-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            >
               <div className="mb-2.5 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold">{block.title}</span>
                 {pinBtn}
@@ -645,7 +747,7 @@ export function AgentBlocks({
                     {block.rows.map((row, rIdx) => (
                       <tr
                         key={rIdx}
-                        className={`border-b border-[var(--border)]/60 ${
+                        className={`border-b border-[var(--border)]/60 transition-colors hover:bg-[var(--surface-2)]/70 ${
                           hl.has(rIdx) ? 'bg-[var(--accent-soft)]/60 font-semibold' : ''
                         }`}
                       >
@@ -663,7 +765,11 @@ export function AgentBlocks({
 
         if (block.kind === 'map') {
           return (
-            <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div
+              key={block.id}
+              style={staggerStyle}
+              className="animate-card-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold">{block.title}</span>
                 {pinBtn}
@@ -677,7 +783,7 @@ export function AgentBlocks({
                 selectedDistrictId={block.highlightDistrictId}
                 compact
                 onSelectDistrict={districtId =>
-                  onAction({
+                  void handleActionTrigger({
                     type: 'set_filters',
                     districtId,
                     label: districtId,
@@ -691,12 +797,16 @@ export function AgentBlocks({
         if (block.kind === 'allocation') {
           const alloc = block.allocation;
           return (
-            <div key={block.id} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+            <div
+              key={block.id}
+              style={staggerStyle}
+              className="animate-card-in rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            >
               <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-semibold">{block.title}</div>
                   <div className="text-[11px] text-[var(--muted)]">
-                    Pool: {fmtMoney(alloc.totalBudget, lang)} · +{fmtMoney(alloc.expectedTotalProfitLift, lang)}
+                    {lang === 'uz' ? 'Jamg‘arma' : lang === 'ru' ? 'Пул' : 'Pool'}: {fmtMoney(alloc.totalBudget, lang)} · +{fmtMoney(alloc.expectedTotalProfitLift, lang)}
                   </div>
                 </div>
                 {pinBtn}
@@ -705,17 +815,17 @@ export function AgentBlocks({
                 <table className="w-full border-collapse text-left text-xs">
                   <thead>
                     <tr className="border-b border-[var(--border)] text-[11px] text-[var(--muted)]">
-                      <th className="px-2 py-1.5">Branch</th>
+                      <th className="px-2 py-1.5">{lang === 'uz' ? 'Filial' : lang === 'ru' ? 'Филиал' : 'Branch'}</th>
                       <th className="px-2 py-1.5">ROI</th>
-                      <th className="px-2 py-1.5">Score</th>
-                      <th className="px-2 py-1.5">Current</th>
-                      <th className="px-2 py-1.5">AI Budget</th>
+                      <th className="px-2 py-1.5">{lang === 'uz' ? 'Ball' : lang === 'ru' ? 'Скор' : 'Score'}</th>
+                      <th className="px-2 py-1.5">{lang === 'uz' ? 'Joriy' : lang === 'ru' ? 'Текущий' : 'Current'}</th>
+                      <th className="px-2 py-1.5">{lang === 'uz' ? 'AI Byudjet' : lang === 'ru' ? 'AI Бюджет' : 'AI Budget'}</th>
                       <th className="px-2 py-1.5">Δ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {alloc.branches.map(b => (
-                      <tr key={b.restaurantId} className="border-b border-[var(--border)]/60">
+                      <tr key={b.restaurantId} className="border-b border-[var(--border)]/60 transition-colors hover:bg-[var(--surface-2)]/70">
                         <td className="px-2 py-1.5 font-bold">{b.name}</td>
                         <td className="px-2 py-1.5 tabular-nums">{b.roiPct}%</td>
                         <td className="px-2 py-1.5 tabular-nums font-bold text-[var(--accent)]">{b.efficiencyScore}</td>
@@ -735,18 +845,29 @@ export function AgentBlocks({
 
         if (block.kind === 'actions') {
           return (
-            <div key={block.id} className="flex flex-wrap gap-2">
-              {block.actions.map((act, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  disabled={Boolean(actionBusyKey)}
-                  onClick={() => onAction(act)}
-                  className="btn-secondary text-xs"
-                >
-                  {act.label}
-                </button>
-              ))}
+            <div key={block.id} style={staggerStyle} className="animate-card-in flex flex-wrap gap-2">
+              {block.actions.map((act, idx) => {
+                const key = `${act.type}:${act.label}`;
+                const isBusy = effectiveBusyKey === key;
+                const isDone = Boolean(doneActionKeys[key]);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    disabled={Boolean(effectiveBusyKey)}
+                    onClick={() => void handleActionTrigger(act)}
+                    className={`btn-secondary min-h-0 px-3 py-1.5 text-xs transition active:scale-95 ${
+                      isDone
+                        ? 'border-[var(--good)] bg-[var(--good-soft)] text-[var(--good)]'
+                        : 'hover:border-[var(--accent)] hover:text-[var(--accent)]'
+                    }`}
+                  >
+                    {isBusy && <span className="h-2 w-2 animate-ping rounded-full bg-[var(--accent)]" />}
+                    {!isBusy && isDone && <span>✓</span>}
+                    <span>{act.label}</span>
+                  </button>
+                );
+              })}
             </div>
           );
         }

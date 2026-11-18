@@ -306,6 +306,23 @@ export function parseDatePeriodFromQuestion(
     }
   }
 
+  // 5b. Explicit ISO month: 2026-10, 2026-11
+  const isoMonthMatch = q.match(/(?:^|[^\d-])(20\d{2})-(0[1-9]|1[0-2])(?=$|[^\d-])/);
+  if (isoMonthMatch) {
+    const year = Number(isoMonthMatch[1]);
+    const monthIdx = Number(isoMonthMatch[2]) - 1;
+    const fromDate = new Date(Date.UTC(year, monthIdx, 1));
+    const toDate = new Date(Date.UTC(year, monthIdx + 1, 0));
+    const spec = MONTHS[monthIdx];
+    if (spec) {
+      return buildPeriodResult(fromDate, toDate, 'month', isoMonthMatch[0], {
+        ru: `${spec.ruNom} ${year}`,
+        uz: `${spec.uz} ${year}`,
+        en: `${spec.en} ${year}`,
+      });
+    }
+  }
+
   // 6. Single DD.MM[.YYYY] or DD/MM[/YYYY]
   const dotSingleMatch = q.match(
     /(?:^|[^\d.])(\d{1,2})[./](0[1-9]|1[0-2])(?:[./](20\d{2}))?(?=$|\s|[?!,;:)»"'])(?!\s*(?:%|млн|mln|тыс|ming|квт|kw|uzs|сум|кг|kg))/,

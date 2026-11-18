@@ -232,6 +232,7 @@ export function CategoryDonutChart({
   items: CategoryBreakdownItem[];
   lang: Language;
 }) {
+  const [hoveredCat, setHoveredCat] = useState<string | null>(null);
   const nonZero = items.filter(i => i.amount > 0);
   const total = nonZero.reduce((s, i) => s + i.amount, 0);
   if (total === 0) {
@@ -244,6 +245,7 @@ export function CategoryDonutChart({
   const r = 64;
   const circ = 2 * Math.PI * r;
   let offset = 0;
+  const activeItem = hoveredCat ? nonZero.find(i => i.category === hoveredCat) : null;
 
   return (
     <div className="flex flex-col items-center gap-4 sm:flex-row">
@@ -254,6 +256,8 @@ export function CategoryDonutChart({
             const dashArray = `${Math.max(0, len - 3)} ${circ}`;
             const dashOffset = -offset;
             offset += len;
+            const isActive = hoveredCat === item.category;
+            const dimmed = hoveredCat !== null && !isActive;
             return (
               <circle
                 key={item.category}
@@ -262,39 +266,63 @@ export function CategoryDonutChart({
                 r={r}
                 fill="none"
                 stroke={CATEGORY_COLORS[item.category]}
-                strokeWidth="20"
+                strokeWidth={isActive ? 25 : 20}
                 strokeDasharray={dashArray}
                 strokeDashoffset={dashOffset}
+                opacity={dimmed ? 0.35 : 1}
+                onMouseEnter={() => setHoveredCat(item.category)}
+                onMouseLeave={() => setHoveredCat(null)}
+                className="cursor-pointer transition-all duration-200"
               />
             );
           })}
         </svg>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-[11px] font-medium text-[var(--muted)]">{COPY[lang].totalExpenses}</span>
-          <strong className="text-sm font-semibold tracking-tight tabular-nums text-[var(--text)]">
-            {fmtCompactMoney(total, lang)}
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
+          <span className="max-w-[96px] truncate text-[10.5px] font-medium text-[var(--muted)]">
+            {activeItem ? CATEGORY_LABELS[activeItem.category][lang] : COPY[lang].totalExpenses}
+          </span>
+          <strong className="mt-0.5 text-sm font-semibold tracking-tight tabular-nums text-[var(--text)]">
+            {fmtCompactMoney(activeItem ? activeItem.amount : total, lang)}
           </strong>
+          {activeItem && (
+            <span className="text-[10px] font-semibold tabular-nums text-[var(--accent)]">
+              {activeItem.sharePct}%
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="grid w-full flex-1 gap-2">
-        {nonZero.slice(0, 7).map(item => (
-          <div key={item.category} className="flex items-center justify-between gap-2 text-xs">
-            <div className="flex min-w-0 items-center gap-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: CATEGORY_COLORS[item.category] }}
-              />
-              <span className="truncate font-medium text-[var(--text)]">
-                {CATEGORY_LABELS[item.category][lang]}
-              </span>
+      <div className="grid w-full flex-1 gap-1.5">
+        {nonZero.slice(0, 7).map(item => {
+          const isActive = hoveredCat === item.category;
+          return (
+            <div
+              key={item.category}
+              onMouseEnter={() => setHoveredCat(item.category)}
+              onMouseLeave={() => setHoveredCat(null)}
+              className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 text-xs transition-colors ${
+                isActive ? 'bg-[var(--surface-2)]' : ''
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full transition-transform duration-150"
+                  style={{
+                    backgroundColor: CATEGORY_COLORS[item.category],
+                    transform: isActive ? 'scale(1.25)' : 'scale(1)',
+                  }}
+                />
+                <span className="truncate font-medium text-[var(--text)]">
+                  {CATEGORY_LABELS[item.category][lang]}
+                </span>
+              </div>
+              <div className="shrink-0 tabular-nums text-right">
+                <span className="font-semibold text-[var(--text)]">{fmtCompactMoney(item.amount, lang)}</span>
+                <span className="ml-1.5 text-[var(--muted)]">({item.sharePct}%)</span>
+              </div>
             </div>
-            <div className="shrink-0 tabular-nums text-right">
-              <span className="font-semibold text-[var(--text)]">{fmtCompactMoney(item.amount, lang)}</span>
-              <span className="ml-1.5 text-[var(--muted)]">({item.sharePct}%)</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -307,50 +335,104 @@ export function HourlyHeatmap({
   cells: HourlyHeatmapCell[];
   lang: Language;
 }) {
+  const [hoveredCell, setHoveredCell] = useState<{ weekdayLabel: string; hour: number; cell?: HourlyHeatmapCell } | null>(null);
   const maxOrders = Math.max(1, ...cells.map(c => c.orders));
   const map = new Map<string, HourlyHeatmapCell>();
   for (const c of cells) map.set(`${c.weekday}:${c.hour}`, c);
 
   const visibleHours = Array.from({ length: 15 }, (_, idx) => idx + 9); // 09:00 .. 23:00
   const weekdays = COPY[lang].weekdays;
+  const ordersLabel = lang === 'uz' ? 'buyurtma' : lang === 'ru' ? 'зак.' : 'orders';
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[600px]">
-        <div className="mb-1.5 grid grid-cols-[44px_repeat(15,minmax(0,1fr))] gap-1 text-center text-[10px] text-[var(--muted)]">
-          <div />
-          {visibleHours.map(h => (
-            <div key={h}>{String(h).padStart(2, '0')}</div>
-          ))}
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+        <div className="flex items-center gap-2 text-[var(--muted)]">
+          <span>{lang === 'uz' ? 'Kam' : lang === 'ru' ? 'Мин' : 'Low'}</span>
+          <div className="flex items-center gap-1">
+            {[0, 0.25, 0.5, 0.75, 1].map(lvl => (
+              <span
+                key={lvl}
+                className="h-3 w-4 rounded border border-[var(--border)]"
+                style={{
+                  backgroundColor:
+                    lvl === 0 ? 'var(--surface-2)' : `rgba(236, 81, 128, ${(0.18 + lvl * 0.82).toFixed(2)})`,
+                }}
+              />
+            ))}
+          </div>
+          <span>{lang === 'uz' ? 'Pik' : lang === 'ru' ? 'Пик' : 'Peak'}</span>
         </div>
-        <div className="grid gap-1">
-          {weekdays.map((label, w) => (
-            <div key={label} className="grid grid-cols-[44px_repeat(15,minmax(0,1fr))] items-center gap-1">
-              <span className="text-xs font-medium text-[var(--muted)]">{label}</span>
-              {visibleHours.map(h => {
-                const cell = map.get(`${w}:${h}`);
-                const count = cell?.orders ?? 0;
-                const intensity = count / maxOrders;
-                const bg =
-                  count === 0
-                    ? 'var(--surface-2)'
-                    : `rgba(236, 81, 128, ${(0.18 + intensity * 0.82).toFixed(2)})`;
-                return (
-                  <div
-                    key={h}
-                    title={`${label} ${h}:00 — ${count} (${fmtMoney(cell?.revenue ?? 0, lang)})`}
-                    className="flex h-7 items-center justify-center rounded-lg border border-[var(--border)] text-[10px] font-medium tabular-nums transition-colors"
-                    style={{
-                      backgroundColor: bg,
-                      color: intensity > 0.52 ? '#ffffff' : 'var(--text)',
-                    }}
-                  >
-                    {count > 0 ? count : ''}
-                  </div>
-                );
-              })}
+
+        <div className="min-h-[26px]">
+          {hoveredCell ? (
+            <div className="animate-scale-in inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)] px-3 py-1 text-[11.5px] tabular-nums shadow-xs">
+              <strong className="font-semibold text-[var(--text)]">
+                {hoveredCell.weekdayLabel} · {String(hoveredCell.hour).padStart(2, '0')}:00
+              </strong>
+              <span className="font-medium text-[var(--accent)]">
+                {hoveredCell.cell?.orders ?? 0} {ordersLabel}
+              </span>
+              <span className="text-[var(--muted)]">
+                {fmtMoney(hoveredCell.cell?.revenue ?? 0, lang)}
+              </span>
             </div>
-          ))}
+          ) : (
+            <span className="text-[var(--muted-soft)]">
+              {lang === 'uz'
+                ? 'Tafsilotlar uchun katakchaga olib boring'
+                : lang === 'ru'
+                  ? 'Наведите на ячейку для детализации'
+                  : 'Hover any cell for hourly breakdown'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[600px]">
+          <div className="mb-1.5 grid grid-cols-[44px_repeat(15,minmax(0,1fr))] gap-1 text-center text-[10px] font-medium text-[var(--muted)]">
+            <div />
+            {visibleHours.map(h => (
+              <div key={h}>{String(h).padStart(2, '0')}</div>
+            ))}
+          </div>
+          <div className="grid gap-1">
+            {weekdays.map((label, w) => (
+              <div key={label} className="grid grid-cols-[44px_repeat(15,minmax(0,1fr))] items-center gap-1">
+                <span className="text-xs font-medium text-[var(--muted)]">{label}</span>
+                {visibleHours.map(h => {
+                  const cell = map.get(`${w}:${h}`);
+                  const count = cell?.orders ?? 0;
+                  const intensity = count / maxOrders;
+                  const bg =
+                    count === 0
+                      ? 'var(--surface-2)'
+                      : `rgba(236, 81, 128, ${(0.2 + intensity * 0.8).toFixed(2)})`;
+                  const isHovered = hoveredCell?.weekdayLabel === label && hoveredCell.hour === h;
+                  return (
+                    <div
+                      key={h}
+                      onMouseEnter={() => setHoveredCell({ weekdayLabel: label, hour: h, cell })}
+                      onMouseLeave={() => setHoveredCell(null)}
+                      title={`${label} ${h}:00 — ${count} (${fmtMoney(cell?.revenue ?? 0, lang)})`}
+                      className={`flex h-7 cursor-pointer items-center justify-center rounded-lg border text-[10px] font-semibold tabular-nums transition-all duration-150 ${
+                        isHovered
+                          ? 'z-10 scale-110 border-[var(--accent)] shadow-sm'
+                          : 'border-[var(--border)]'
+                      }`}
+                      style={{
+                        backgroundColor: bg,
+                        color: intensity > 0.45 ? '#ffffff' : 'var(--text)',
+                      }}
+                    >
+                      {count > 0 ? count : ''}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -364,7 +446,10 @@ export function MenuQuadrantChart({
   dishes: DishAnalyticsItem[];
   lang: Language;
 }) {
-  if (dishes.length === 0) return null;
+  const [hoveredDishId, setHoveredDishId] = useState<string | null>(null);
+  if (dishes.length === 0) {
+    return <p className="py-10 text-center text-xs text-[var(--muted)]">{COPY[lang].noData}</p>;
+  }
   const w = 520;
   const h = 230;
   const pad = 36;
@@ -389,44 +474,106 @@ export function MenuQuadrantChart({
     DOG: '#d54c4f',
   };
 
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="h-56 w-full">
-      <rect x={pad} y={pad} width={plotW} height={plotH} fill="var(--surface-2)" rx={10} />
-      <line
-        x1={xOf(avgQty)}
-        y1={pad}
-        x2={xOf(avgQty)}
-        y2={pad + plotH}
-        stroke="var(--border-strong)"
-        strokeDasharray="4 4"
-      />
-      <line
-        x1={pad}
-        y1={yOf(avgMargin)}
-        x2={pad + plotW}
-        y2={yOf(avgMargin)}
-        stroke="var(--border-strong)"
-        strokeDasharray="4 4"
-      />
-      <text x={pad + 8} y={pad + 14} fontSize="10" fontWeight="500" fill="var(--accent-2)">PUZZLE</text>
-      <text x={pad + plotW - 42} y={pad + 14} fontSize="10" fontWeight="500" fill="var(--mint)">STAR</text>
-      <text x={pad + 8} y={pad + plotH - 6} fontSize="10" fontWeight="500" fill="var(--bad)">DOG</text>
-      <text x={pad + plotW - 70} y={pad + plotH - 6} fontSize="10" fontWeight="500" fill="var(--accent)">PLOWHORSE</text>
+  const hoveredDish = hoveredDishId ? dishes.find(d => d.dishId === hoveredDishId) : null;
 
-      {dishes.map(d => {
-        const cx = xOf(d.quantitySold);
-        const cy = yOf(d.unitMargin);
-        return (
-          <g key={d.dishId}>
-            <circle cx={cx} cy={cy} r={7} fill={colors[d.quadrant]} opacity={0.9}>
-              <title>{`${d.name}: ${d.quantitySold} шт, ${fmtMoney(d.unitMargin, lang)}`}</title>
-            </circle>
-            <text x={cx + 9} y={cy + 3} fontSize="10" fontWeight="500" fill="var(--text)">
-              {d.name.slice(0, 16)}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
+  return (
+    <div className="grid gap-2">
+      <div className="flex min-h-[28px] items-center justify-between gap-2 px-1 text-[11px]">
+        {hoveredDish ? (
+          <div className="animate-scale-in flex flex-wrap items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-2.5 py-0.5 tabular-nums shadow-xs">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ backgroundColor: colors[hoveredDish.quadrant] }}
+            />
+            <strong className="font-semibold text-[var(--text)]">{hoveredDish.name}</strong>
+            <span className="text-[var(--muted)]">{hoveredDish.quantitySold}</span>
+            <span className="font-semibold text-[var(--good)]">
+              {fmtMoney(hoveredDish.unitMargin, lang)}
+            </span>
+          </div>
+        ) : (
+          <span className="text-[var(--muted)]">
+            {lang === 'uz'
+              ? 'Menyu matritsasi (marja vs sotuv)'
+              : lang === 'ru'
+                ? 'Матрица меню (маржа × продажи)'
+                : 'Menu Matrix (Margin × Volume)'}
+          </span>
+        )}
+      </div>
+
+      <svg viewBox={`0 0 ${w} ${h}`} className="h-56 w-full overflow-visible">
+        <rect x={pad} y={pad} width={plotW} height={plotH} fill="var(--surface)" stroke="var(--border)" rx={10} />
+        <line
+          x1={xOf(avgQty)}
+          y1={pad}
+          x2={xOf(avgQty)}
+          y2={pad + plotH}
+          stroke="var(--border-strong)"
+          strokeDasharray="4 4"
+        />
+        <line
+          x1={pad}
+          y1={yOf(avgMargin)}
+          x2={pad + plotW}
+          y2={yOf(avgMargin)}
+          stroke="var(--border-strong)"
+          strokeDasharray="4 4"
+        />
+        <text x={pad + 8} y={pad + 14} fontSize="10" fontWeight="600" fill="var(--accent-2)">PUZZLE</text>
+        <text x={pad + plotW - 38} y={pad + 14} fontSize="10" fontWeight="600" fill="var(--mint)">STAR</text>
+        <text x={pad + 8} y={pad + plotH - 6} fontSize="10" fontWeight="600" fill="var(--bad)">DOG</text>
+        <text x={pad + plotW - 72} y={pad + plotH - 6} fontSize="10" fontWeight="600" fill="var(--accent)">PLOWHORSE</text>
+
+        {dishes.map(d => {
+          const cx = xOf(d.quantitySold);
+          const cy = yOf(d.unitMargin);
+          const isHovered = hoveredDishId === d.dishId;
+          const dimmed = hoveredDishId !== null && !isHovered;
+          return (
+            <g
+              key={d.dishId}
+              onMouseEnter={() => setHoveredDishId(d.dishId)}
+              onMouseLeave={() => setHoveredDishId(null)}
+              className="cursor-pointer"
+              style={{ opacity: dimmed ? 0.35 : 1, transition: 'opacity 0.18s ease' }}
+            >
+              {isHovered && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={13}
+                  fill={colors[d.quadrant]}
+                  fillOpacity={0.2}
+                />
+              )}
+              <circle
+                cx={cx}
+                cy={cy}
+                r={isHovered ? 9 : 7}
+                fill={colors[d.quadrant]}
+                stroke="var(--surface)"
+                strokeWidth="1.5"
+                style={{ transition: 'r 0.15s ease' }}
+              >
+                <title>{`${d.name}: ${d.quantitySold} шт, ${fmtMoney(d.unitMargin, lang)}`}</title>
+              </circle>
+              <text
+                x={cx + 10}
+                y={cy + 3}
+                fontSize="10"
+                fontWeight={isHovered ? '700' : '500'}
+                fill="var(--text)"
+                stroke="var(--surface)"
+                strokeWidth="2.5"
+                paintOrder="stroke"
+              >
+                {d.name.slice(0, 16)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }

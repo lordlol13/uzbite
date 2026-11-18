@@ -10,7 +10,6 @@ datasource db {
 enum Role {
   USER
   RESTAURANT
-  COURIER
 }
 
 enum OrderStatus {
@@ -34,64 +33,9 @@ enum PaymentStatus {
   REJECTED
 }
 
-enum MediaType {
-  VIDEO
-  IMAGE
-}
-
 enum UploadPurpose {
   AVATAR
   RECEIPT
-}
-
-enum DeliveryMode {
-  OWN_COURIER
-  ON_DEMAND_COURIER
-}
-
-enum DeliveryStatus {
-  NOT_REQUESTED
-  SEARCHING
-  OFFERED
-  ASSIGNED
-  COURIER_ACCEPTED
-  READY_FOR_PICKUP
-  PICKED_UP
-  ON_THE_WAY
-  DELIVERED
-  FAILED
-  CANCELLED
-}
-
-enum CourierAffiliationStatus {
-  INVITED
-  PENDING
-  ACTIVE
-  DISABLED
-  REJECTED
-}
-
-enum CourierAvailability {
-  AVAILABLE
-  BUSY
-  OFFLINE
-  UNAVAILABLE
-}
-
-enum DeliveryRequestStatus {
-  SEARCHING
-  ACCEPTED
-  EXPIRED
-  CANCELLED
-  FAILED
-}
-
-enum DeliveryOfferStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  EXPIRED
-  CANCELLED
 }
 
 enum ExpenseCategory {
@@ -120,29 +64,18 @@ model User {
   recipientName     String?
   deliveryAddressId String?
   deliveryAddress   UserAddress?   @relation("DeliverySelection", fields: [deliveryAddressId], references: [id], onDelete: SetNull)
-  phone               String?
-  role                Role                           @default(USER)
-  tokenVersion        Int                            @default(0)
-  courierAvailability CourierAvailability            @default(AVAILABLE)
-  createdAt           DateTime                       @default(now())
-  updatedAt           DateTime                       @updatedAt
-  settings            UserSettings?
-  addresses           UserAddress[]
-  likes               Like[]
-  comments            Comment[]
-  follows             Follow[]
-  reviews             Review[]
-  orders              Order[]
-  notifications       Notification[]
-  uploads             Upload[]
-  sessions            Session[]
-  managedRestaurant   Restaurant?                    @relation("RestaurantOwner")
-  courierAffiliations RestaurantCourierAffiliation[]
-  assignedDeliveries  Delivery[]                     @relation("AssignedCourier")
-  deliveryOffers      DeliveryOffer[]
-  courierAssignments  CourierAssignment[]
-  importJobs          ImportJob[]
-  exportJobs          ExportJob[]
+  phone             String?
+  role              Role           @default(USER)
+  tokenVersion      Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  settings          UserSettings?
+  addresses         UserAddress[]
+  reviews           Review[]
+  orders            Order[]
+  uploads           Upload[]
+  sessions          Session[]
+  managedRestaurant Restaurant?    @relation("RestaurantOwner")
 
   @@index([deliveryAddressId])
 }
@@ -193,7 +126,6 @@ model Restaurant {
   description         String
   logoUrl             String
   coverUrl            String
-  galleryUrls         String[]             @default([])
   addressText         String
   landmark            String               @default("")
   latitude            Float
@@ -219,21 +151,11 @@ model Restaurant {
   owner               User?                @relation("RestaurantOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   categories          RestaurantCategory[]
   dishes              Dish[]
-  posts               Post[]
-  follows             Follow[]
   reviews             Review[]
   orders              Order[]
   suppliers           Supplier[]
   expenses            Expense[]
   budgets             ExpenseBudget[]
-  settings            RestaurantSettings?
-  deliverySettings    RestaurantDeliverySettings?
-  courierAffiliations RestaurantCourierAffiliation[]
-  deliveries          Delivery[]
-  deliveryRequests    DeliveryRequest[]
-  courierAssignments  CourierAssignment[]
-  importJobs          ImportJob[]
-  exportJobs          ExportJob[]
 
   @@index([name])
 }
@@ -265,90 +187,11 @@ model Dish {
   updatedAt    DateTime           @updatedAt
   restaurant   Restaurant         @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   category     RestaurantCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  posts        Post[]
   orderItems   OrderItem[]
 
   @@unique([restaurantId, sku])
   @@index([restaurantId, isAvailable])
   @@index([name])
-}
-
-model Post {
-  id           String      @id @default(cuid())
-  restaurantId String
-  dishId       String?
-  title        String      @default("")
-  caption      String
-  categoryName String?
-  status       String      @default("PUBLISHED")
-  aspectRatio  String      @default("9:16")
-  publishedAt  DateTime?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  dish         Dish?       @relation(fields: [dishId], references: [id], onDelete: SetNull)
-  media        PostMedia[]
-  likes        Like[]
-  comments     Comment[]
-
-  @@index([createdAt])
-  @@index([restaurantId, createdAt])
-}
-
-model PostMedia {
-  id        String    @id @default(cuid())
-  postId    String
-  url       String
-  posterUrl String?
-  type      MediaType @default(VIDEO)
-  duration  Float?
-  width     Int?
-  height    Int?
-  size      Int?
-  sortOrder Int       @default(0)
-  createdAt DateTime  @default(now())
-  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-
-  @@index([postId, sortOrder])
-}
-
-model Like {
-  userId    String
-  postId    String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-
-  @@id([userId, postId])
-  @@index([postId])
-}
-
-model Comment {
-  id        String    @id @default(cuid())
-  userId    String
-  postId    String
-  parentId  String?
-  text      String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  post      Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
-  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
-  replies   Comment[] @relation("CommentReplies")
-
-  @@index([postId, createdAt])
-  @@index([parentId])
-}
-
-model Follow {
-  userId       String
-  restaurantId String
-  createdAt    DateTime   @default(now())
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-
-  @@id([userId, restaurantId])
-  @@index([restaurantId])
 }
 
 model Review {
@@ -384,12 +227,9 @@ model Order {
   updatedAt         DateTime    @updatedAt
   user              User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   restaurant        Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Restrict)
-  items              OrderItem[]
-  payment            Payment?
-  review             Review?
-  delivery           Delivery?
-  statusHistory      OrderStatusHistory[]
-  courierAssignments CourierAssignment[]
+  items             OrderItem[]
+  payment           Payment?
+  review            Review?
 
   @@index([userId, createdAt])
   @@index([restaurantId, status])
@@ -491,252 +331,4 @@ model ExpenseBudget {
   restaurant   Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
   @@unique([restaurantId, category, month])
-}
-
-model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  type      String
-  title     String
-  body      String
-  link      String
-  metadata  Json?
-  readAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
-  @@index([userId, readAt])
-}
-
-model RestaurantSettings {
-  id                   String     @id @default(cuid())
-  restaurantId         String     @unique
-  businessHours        Json
-  acceptingOrders      Boolean    @default(true)
-  timezone             String     @default("Asia/Tashkent")
-  notificationsEnabled Boolean    @default(true)
-  updatedAt            DateTime   @updatedAt
-  restaurant           Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-}
-
-model RestaurantDeliverySettings {
-  id                      String       @id @default(cuid())
-  restaurantId            String       @unique
-  ownCouriersEnabled      Boolean      @default(true)
-  onDemandCouriersEnabled Boolean      @default(true)
-  preferredMode           DeliveryMode @default(OWN_COURIER)
-  baseDeliveryFee         Decimal      @default(12000) @db.Decimal(14, 2)
-  courierRewardFee        Decimal      @default(10000) @db.Decimal(14, 2)
-  offerTimeoutSeconds     Int          @default(120)
-  searchTimeoutSeconds    Int          @default(300)
-  updatedAt               DateTime     @updatedAt
-  restaurant              Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-}
-
-model RestaurantCourierAffiliation {
-  id           String                   @id @default(cuid())
-  restaurantId String
-  courierId    String
-  inviteCode   String?                  @unique
-  status       CourierAffiliationStatus @default(INVITED)
-  availability CourierAvailability      @default(AVAILABLE)
-  activeLoad   Int                      @default(0)
-  invitedAt    DateTime                 @default(now())
-  acceptedAt   DateTime?
-  disabledAt   DateTime?
-  updatedAt    DateTime                 @updatedAt
-  restaurant   Restaurant               @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  courier      User                     @relation(fields: [courierId], references: [id], onDelete: Cascade)
-
-  @@unique([restaurantId, courierId])
-  @@index([restaurantId, status])
-  @@index([courierId, status])
-}
-
-model Delivery {
-  id                      String                  @id @default(cuid())
-  orderId                 String                  @unique
-  restaurantId            String
-  mode                    DeliveryMode
-  assignedCourierId       String?
-  status                  DeliveryStatus          @default(NOT_REQUESTED)
-  pickupAddressSnapshot   Json
-  deliveryAddressSnapshot Json
-  deliveryFee             Decimal                 @db.Decimal(14, 2)
-  courierReward           Decimal                 @db.Decimal(14, 2)
-  notes                   String?
-  offeredAt               DateTime?
-  assignedAt              DateTime?
-  acceptedAt              DateTime?
-  readyAt                 DateTime?
-  pickedUpAt              DateTime?
-  startedAt               DateTime?
-  deliveredAt             DateTime?
-  cancelledAt             DateTime?
-  cancelReason            String?
-  createdAt               DateTime                @default(now())
-  updatedAt               DateTime                @updatedAt
-  order                   Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  restaurant              Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  assignedCourier         User?                   @relation("AssignedCourier", fields: [assignedCourierId], references: [id], onDelete: SetNull)
-  requests                DeliveryRequest[]
-  offers                  DeliveryOffer[]
-  assignments             CourierAssignment[]
-  statusHistory           DeliveryStatusHistory[]
-
-  @@index([restaurantId, status])
-  @@index([assignedCourierId, status])
-}
-
-model DeliveryRequest {
-  id                  String                @id @default(cuid())
-  deliveryId          String
-  restaurantId        String
-  status              DeliveryRequestStatus @default(SEARCHING)
-  startedAt           DateTime              @default(now())
-  expiresAt           DateTime
-  completedAt         DateTime?
-  acceptedByCourierId String?
-  failureReason       String?
-  createdAt           DateTime              @default(now())
-  delivery            Delivery              @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  restaurant          Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  offers              DeliveryOffer[]
-
-  @@index([deliveryId, status])
-  @@index([restaurantId, status])
-}
-
-model DeliveryOffer {
-  id              String              @id @default(cuid())
-  requestId       String?
-  deliveryId      String
-  courierId       String
-  mode            DeliveryMode
-  status          DeliveryOfferStatus @default(PENDING)
-  rewardAmount    Decimal             @db.Decimal(14, 2)
-  sentAt          DateTime            @default(now())
-  expiresAt       DateTime
-  respondedAt     DateTime?
-  rejectionReason String?
-  request         DeliveryRequest?    @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  delivery        Delivery            @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  courier         User                @relation(fields: [courierId], references: [id], onDelete: Cascade)
-
-  @@index([courierId, status])
-  @@index([deliveryId, status])
-  @@index([requestId, status])
-}
-
-model CourierAssignment {
-  id           String       @id @default(cuid())
-  deliveryId   String
-  orderId      String
-  restaurantId String
-  courierId    String
-  mode         DeliveryMode
-  isActive     Boolean      @default(true)
-  assignedAt   DateTime     @default(now())
-  acceptedAt   DateTime?
-  pickedUpAt   DateTime?
-  completedAt  DateTime?
-  cancelledAt  DateTime?
-  cancelReason String?
-  delivery     Delivery     @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  restaurant   Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  courier      User         @relation(fields: [courierId], references: [id], onDelete: Cascade)
-
-  @@index([deliveryId, isActive])
-  @@index([courierId, isActive])
-  @@index([restaurantId, assignedAt])
-}
-
-model DeliveryStatusHistory {
-  id         String          @id @default(cuid())
-  deliveryId String
-  orderId    String
-  actorId    String?
-  actorRole  String
-  fromStatus DeliveryStatus?
-  toStatus   DeliveryStatus
-  note       String?
-  metadata   Json?
-  createdAt  DateTime        @default(now())
-  delivery   Delivery        @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
-
-  @@index([deliveryId, createdAt])
-  @@index([orderId, createdAt])
-}
-
-model OrderStatusHistory {
-  id         String       @id @default(cuid())
-  orderId    String
-  actorId    String?
-  actorRole  String
-  fromStatus OrderStatus?
-  toStatus   OrderStatus
-  note       String?
-  createdAt  DateTime     @default(now())
-  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@index([orderId, createdAt])
-}
-
-model ImportJob {
-  id            String              @id @default(cuid())
-  restaurantId  String
-  userId        String
-  fileName      String
-  fileFormat    String
-  conflictMode  String
-  status        String
-  totalRows     Int
-  addedCount    Int                 @default(0)
-  updatedCount  Int                 @default(0)
-  skippedCount  Int                 @default(0)
-  errorCount    Int                 @default(0)
-  conflictCount Int                 @default(0)
-  previewData   Json?
-  summary       Json?
-  createdAt     DateTime            @default(now())
-  completedAt   DateTime?
-  restaurant    Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rowErrors     ImportJobRowError[]
-
-  @@index([restaurantId, createdAt])
-}
-
-model ImportJobRowError {
-  id          String    @id @default(cuid())
-  importJobId String
-  rowNumber   Int
-  sku         String?
-  dishName    String?
-  field       String?
-  errorCode   String
-  message     String
-  rawRow      Json?
-  createdAt   DateTime  @default(now())
-  importJob   ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
-
-  @@index([importJobId, rowNumber])
-}
-
-model ExportJob {
-  id           String     @id @default(cuid())
-  restaurantId String
-  userId       String
-  exportType   String
-  fileFormat   String
-  filters      Json?
-  rowCount     Int
-  fileName     String
-  createdAt    DateTime   @default(now())
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([restaurantId, createdAt])
 }

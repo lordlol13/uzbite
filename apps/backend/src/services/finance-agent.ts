@@ -26,7 +26,7 @@ import {
   resolveMonthRange,
   runRestaurantAnalysis,
 } from './business-analytics.js';
-import { callCoarenaChat, extractJsonFromText, type CoarenaMessage } from './coarena.js';
+import { callCoarenaChat, callGeminiAgentChat, extractJsonFromText, type CoarenaMessage } from './coarena.js';
 import {
   calculateDeduplicatedSavings,
   categoryLabel,
@@ -979,9 +979,10 @@ export async function executeMcpTool(
   args: Record<string, unknown>,
   context: { restaurantId: string; from?: string; to?: string; month?: string },
 ): Promise<unknown> {
-  const from = typeof args.from === 'string' ? args.from : context.from;
-  const to = typeof args.to === 'string' ? args.to : context.to;
-  const month = typeof args.month === 'string' ? args.month : context.month;
+  const argPeriod = typeof args.period === 'string' ? parseDatePeriodFromQuestion(args.period) : null;
+  const from = typeof args.from === 'string' ? args.from : (argPeriod?.from ?? context.from);
+  const to = typeof args.to === 'string' ? args.to : (argPeriod?.to ?? context.to);
+  const month = typeof args.month === 'string' ? args.month : (argPeriod?.month ?? context.month);
   const districtId =
     typeof args.districtId === 'string' && TASHKENT_DISTRICT_MAP.has(args.districtId as TashkentDistrictId)
       ? (args.districtId as TashkentDistrictId)
@@ -1242,6 +1243,7 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
   isSelectMainDashboard: boolean;
   isSelectCustomDashboard: boolean;
   isRemoveDashboardWidget: boolean;
+  isListDashboards: boolean;
   removeWidgetKind: AgentUiBlock['kind'] | null;
   isPinWidget: boolean;
   isUnpinWidget: boolean;
@@ -1258,10 +1260,10 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
 } {
   const lower = q.toLowerCase();
   const isMap = /(карт|район|откуда|клиент|доставк|tuman|xarita|mijoz|hudud|district|map|client|heatmap|sergeli|chilonzor|yunusobod|mirzo|yakkasaroy|mirobod|shayxontohur|olmazor|uchtepa|yashnobod|yangihayot|bektemir|чиланзар|юнусабад|сергели|мирабад|учтепа|алмазар|яшнабад|бектемир|шайхантахур|яккасарай|янгиха)/i.test(lower);
-  const isBranchAlloc = /(филиал|бхм|bxm|bxo|распредел|подели|аллокац|filial|taqsim|bo'linma|branch|allocat|split|24)/i.test(lower);
-  const isBudget = /(бюджет|лимит|перерасх|прогноз|план|факт|byudjet|reja|fakt|prognoz|oshish|budget|forecast|overrun|breach|variance|25)/i.test(lower);
-  const isAudit = /(ошиб|дубл|аудит|эконом|сократ|свет|электр|связ|постав|xato|dublikat|teja|elektr|aloqa|audit|error|duplicate|saving|cost|26)/i.test(lower);
-  const isWhatIf = /(сценар|если|инфляц|тариф|повыс|what.?if|simulat|ssenariy|inflyatsiya|tarif)/i.test(lower);
+  const isBranchAlloc = /(филиал|бхм|bxm|bxo|распредел|подели|аллокац|filial|taqsim|bo'linma|branch|allocat|split|(?:^|[^\d])(?:#|кейс\s*#?|case\s*#?|keys\s*#?)\s*24\b)/i.test(lower);
+  const isBudget = /(бюджет|лимит|перерасх|прогноз|план|факт|byudjet|reja|fakt|prognoz|oshish|budget|forecast|overrun|breach|variance|(?:^|[^\d])(?:#|кейс\s*#?|case\s*#?|keys\s*#?)\s*25\b)/i.test(lower);
+  const isAudit = /(ошиб|дубл|аудит|эконом|сократ|свет|электр|связ|постав|xato|dublikat|teja|elektr|aloqa|audit|error|duplicate|saving|cost|(?:^|[^\d])(?:#|кейс\s*#?|case\s*#?|keys\s*#?)\s*26\b)/i.test(lower);
+  const isWhatIf = /(сценар|что\s+если|если\s+[^.!?\n]{0,45}(?:%|выраст|упадут|подним|сниз|повыс|увелич|сократ|oshsa|kamaysa|ko'taril|hik|inflat|rise|drop)|инфляц|тариф|what.?if|simulat|stress.?test|ssenariy|inflyatsiya|tarif)/i.test(lower);
   const isSales = /(продаж|меню|блюд|маржинал|abc|star|dog|savdo|taom|menyu|sales|menu\b|dish)/i.test(lower);
   const isExpenseQuery = /(расход|затрат|трат|накладн|сч[её]т|налог|ндс|есп|ндфл|электр|свет|квт|коммунал|газ|вод|базов|дополнит|xarajat|sarflar|soliq|qqs|elektr|svet|kommunal|asosiy|qo'shimcha|expense|spend|spending|cost|tax|taxes|vat|electric|utilit|base|additional)/i.test(lower);
   const isPriorityQuery = /(налог|ндс|есп|ндфл|электр|свет|квт|коммунал|приоритет|базов|дополнит|soliq|qqs|elektr|svet|kommunal|asosiy|qo'shimcha|ustuvor|tax|taxes|vat|electric|kwh|utilit|priority|base|additional)/i.test(lower);
@@ -1269,26 +1271,29 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
 
   const hasDashboardWord = /(дашборд|панел|виджет|борд|dashboard|custom\s+board)/i.test(lower);
 
-  // Extract explicit title in quotes or after rename/name phrases
+  const isRenameDashboard =
+    /(переименуй|назови\s+дашборд|смени\s+название|измени\s+название|rename\s+.*dashboard|(?:dashboard|panel)[a-zа-яё]*\s+nomini)/i.test(lower);
+
+  // Extract explicit target title; for rename queries prefer the new title after "в"/"на"/"to"/"nomini"
   let requestedDashboardTitle: string | null = null;
-  const quoteMatch =
-    q.match(/«([^»]{2,60})»/) ??
-    q.match(/"([^"]{2,60})"/) ??
-    q.match(/“([^”]{2,60})”/);
-  if (quoteMatch?.[1]) {
-    requestedDashboardTitle = quoteMatch[1].trim();
-  } else {
+  if (isRenameDashboard) {
     const renameMatch =
-      q.match(/(?:переименуй|назови|смени\s+название)(?:\s+(?:этот|текущий|кастомный|мой))?(?:\s+(?:дашборд|панель))?\s+(?:в|на)\s+([^\n.,;!?]{2,50})/i) ??
-      q.match(/rename(?:\s+(?:this|the|current|custom))?\s+dashboard\s+to\s+([^\n.,;!?]{2,50})/i) ??
-      q.match(/(?:dashboard|panel)\w*\s+nomini\s+([^\n.,;!?]{2,50}?)\s+deb/i);
+      q.match(/(?:переименуй|назови|смени\s+название|измени\s+название)(?:\s+(?:этот|текущий|кастомный|мой))?(?:\s+(?:дашборд|панель))?(?:\s+[«"'“][^»"'”]+[»"'”])?\s+(?:в|на)\s+([^\n.,;!?]{2,60})/i) ??
+      q.match(/rename(?:\s+(?:this|the|current|custom))?\s+dashboard(?:\s+["'“][^"'”]+["'”])?\s+to\s+([^\n.,;!?]{2,60})/i) ??
+      q.match(/(?:dashboard|panel)\w*\s+nomini\s+([^\n.,;!?]{2,60}?)\s+(?:deb|ga)\b/i);
     if (renameMatch?.[1]) {
       requestedDashboardTitle = renameMatch[1].trim().replace(/^[«"'“]+|[»"'”]+$/g, '');
     }
   }
-
-  const isRenameDashboard =
-    /(переименуй|назови\s+дашборд|смени\s+название|измени\s+название|rename\s+.*dashboard|(?:dashboard|panel)[a-zа-яё]*\s+nomini)/i.test(lower);
+  if (!requestedDashboardTitle) {
+    const quoteMatch =
+      q.match(/«([^»]{2,60})»/) ??
+      q.match(/"([^"]{2,60})"/) ??
+      q.match(/“([^”]{2,60})”/);
+    if (quoteMatch?.[1]) {
+      requestedDashboardTitle = quoteMatch[1].trim();
+    }
+  }
 
   let removeWidgetKind: AgentUiBlock['kind'] | null = null;
   if (/(убер[иь]|удал[иь]|скрой|убрать|remove|hide|olib\s+tashla)/i.test(lower) && hasDashboardWord) {
@@ -1343,7 +1348,17 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
     !isDeleteDashboard &&
     !isRemoveDashboardWidget &&
     !isSelectMainDashboard &&
-    (/((переключ[а-яё]*|включ[а-яё]*|выбер[а-яё]*|открой|покажи)\s+(?:на\s+)?(?:кастомн[а-яё]*\s+|пользовательск[а-яё]*\s+|мой\s+|первый\s+|последний\s+)*(дашборд|панел)\s+[«"'\wа-яё]|(switch\s+to|select|open)\s+(?:custom\s+)?dashboard\s+["'\w]|(открой|покажи|переключи\s+на)\s+кастомн[а-яё]*\s+дашборд)/i.test(lower));
+    (/((переключ[а-яё]*|включ[а-яё]*|выбер[а-яё]*|открой|покажи)\s+(?:на\s+)?(?:(?:кастомн[а-яё]*|пользовательск[а-яё]*)\s+(?:дашборд|панел[ьи])|(?:мой\s+|первый\s+|последний\s+)?(?:дашборд|панел[ьи])\s+[«"'\wа-яё])|(switch\s+to|select|open)\s+(?:my\s+|the\s+|first\s+|latest\s+)?(?:custom\s+dashboard|dashboard\s+["'\w])|(?:maxsus\s+(?:dashboard|panel)|(?:dashboard|panel)ni\s+(?:och|tanla|ko'rsat)))/i.test(lower));
+
+  const isListDashboards =
+    !isCreateDashboard &&
+    !isUpdateDashboard &&
+    !isRenameDashboard &&
+    !isDeleteDashboard &&
+    !isRemoveDashboardWidget &&
+    !isSelectMainDashboard &&
+    !isSelectCustomDashboard &&
+    /(какие\s+(?:у\s+меня\s+)?(?:есть\s+)?(?:кастомн[а-яё]*\s+)?(?:дашборд|панел|виджет)|список\s+(?:моих\s+)?(?:дашборд|панел)|сколько\s+(?:у\s+меня\s+)?(?:дашборд|виджет)|list\s+(?:my\s+)?(?:custom\s+)?dashboards|what\s+dashboards|how\s+many\s+(?:dashboards|pinned)|qaysi\s+(?:dashboard|panel)|nechta\s+(?:dashboard|vidjet))/i.test(lower);
 
   const isUnpinWidget = /(откреп[а-яё]*|удали\s+закреп[а-яё]*|очисти\s+закреп[а-яё]*|убери\s+закреп[а-яё]*|unpin|clear\s+pinned|biriktirilgan.*o'chir)/i.test(lower);
   const isPinWidget = !isUnpinWidget && /(закреп[а-яё]*|прикреп[а-яё]*|\bpin\b|biriktir)/i.test(lower);
@@ -1367,9 +1382,9 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
 
   if (!anyDashboardMutation && /(открой|покажи|перейд|переключ|och|ko'rsat|open|show|switch|go to)/i.test(lower)) {
     if (/(карт|map|xarita|район|tuman)/i.test(lower)) requestedNavTab = 'map';
-    else if (/(филиал|branch|filial|24)/i.test(lower)) requestedNavTab = 'branches';
-    else if (/(бюджет|budget|byudjet|лимит|25)/i.test(lower)) requestedNavTab = 'budgets';
-    else if (/(аудит|audit|ошиб|xato|26)/i.test(lower)) requestedNavTab = 'audit';
+    else if (/(филиал|branch|filial|(?:#|кейс\s*#?|case\s*#?)\s*24\b)/i.test(lower)) requestedNavTab = 'branches';
+    else if (/(бюджет|budget|byudjet|лимит|(?:#|кейс\s*#?|case\s*#?)\s*25\b)/i.test(lower)) requestedNavTab = 'budgets';
+    else if (/(аудит|audit|ошиб|xato|(?:#|кейс\s*#?|case\s*#?)\s*26\b)/i.test(lower)) requestedNavTab = 'audit';
     else if (/(расход|expense|xarajat)/i.test(lower)) requestedNavTab = 'expenses';
     else if (/(продаж|меню|sales|savdo)/i.test(lower)) requestedNavTab = 'sales';
     else if (/(обзор|дашборд|dashboard|sharh)/i.test(lower)) requestedNavTab = 'dashboard';
@@ -1443,6 +1458,7 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
     isSelectMainDashboard,
     isSelectCustomDashboard,
     isRemoveDashboardWidget,
+    isListDashboards,
     removeWidgetKind,
     isPinWidget,
     isUnpinWidget,
@@ -1456,6 +1472,66 @@ export function detectQuestionIntents(q: string, now: Date = new Date()): {
     parsedPeriod,
     requestedHighlightWidget,
     requestedDashboardTitle,
+  };
+}
+
+export type QuestionIntents = ReturnType<typeof detectQuestionIntents>;
+
+export function resolveConversationalIntents(
+  question: string,
+  history?: AgentChatMessage[],
+  now: Date = new Date(),
+): QuestionIntents {
+  const current = detectQuestionIntents(question, now);
+  if (!history || history.length === 0) return current;
+
+  const userHistory = history.filter(m => m.role === 'user' && m.content.trim().length > 0);
+  if (userHistory.length === 0) return current;
+
+  const prevUser = userHistory[userHistory.length - 1]!;
+  const prev = detectQuestionIntents(prevUser.content, now);
+
+  const lower = question.toLowerCase();
+  const hasAnaphora = /(^а\s+|там\b|туда\b|этого|этот|этой|этих|тем\b|те\b|это\b|подробн|детал|ещ[её]|из\s+этого|продолж|what\s+about|about\s+that|from\s+this|those|there|more\s+detail|pin\s+this|pin\s+it|batafsil|shundan|u\s+yerda|undan|buni)/i.test(lower);
+  const currentHasTopic =
+    current.isMap ||
+    current.isBranchAlloc ||
+    current.isBudget ||
+    current.isAudit ||
+    current.isWhatIf ||
+    current.isSales ||
+    current.isExpenseQuery ||
+    current.isPriorityQuery ||
+    current.requestedCategories.length > 0;
+
+  const shouldInheritTopic =
+    !currentHasTopic &&
+    (hasAnaphora || current.isCreateDashboard || current.isUpdateDashboard || current.isPinWidget);
+
+  const shouldInheritFilters =
+    hasAnaphora || shouldInheritTopic || (!current.parsedPeriod && !current.requestedDays && current.isAudit);
+
+  const mergedCategories =
+    current.requestedCategories.length > 0
+      ? current.requestedCategories
+      : shouldInheritTopic
+        ? prev.requestedCategories
+        : [];
+
+  return {
+    ...current,
+    isMap: current.isMap || (shouldInheritTopic && prev.isMap),
+    isBranchAlloc: current.isBranchAlloc || (shouldInheritTopic && prev.isBranchAlloc),
+    isBudget: current.isBudget || (shouldInheritTopic && prev.isBudget),
+    isAudit: current.isAudit || (shouldInheritTopic && prev.isAudit),
+    isSales: current.isSales || (shouldInheritTopic && prev.isSales),
+    isExpenseQuery: current.isExpenseQuery || (shouldInheritTopic && prev.isExpenseQuery),
+    isPriorityQuery: current.isPriorityQuery || (shouldInheritTopic && prev.isPriorityQuery),
+    requestedCategories: mergedCategories,
+    parsedPeriod: current.parsedPeriod ?? (shouldInheritFilters ? prev.parsedPeriod : null),
+    requestedDays: current.requestedDays ?? (shouldInheritFilters ? prev.requestedDays : null),
+    requestedDistrict: current.requestedDistrict ?? (shouldInheritFilters ? prev.requestedDistrict : null),
+    requestedRestaurantId: current.requestedRestaurantId ?? (shouldInheritFilters ? prev.requestedRestaurantId : null),
   };
 }
 
@@ -2217,7 +2293,7 @@ export async function runFinanceAgentChat(params: {
   const { question, lang, restaurantName } = params;
   const requestedModel = params.model?.trim() || 'gemini-3-8-flash';
   const now = new Date();
-  const intents = detectQuestionIntents(question, now);
+  const intents = resolveConversationalIntents(question, params.history, now);
   const parsedPeriod = intents.parsedPeriod;
   const targetRestaurantId = intents.requestedRestaurantId ?? params.restaurantId;
   const activeDistrictId =
@@ -2233,8 +2309,21 @@ export async function runFinanceAgentChat(params: {
   const suggestedActions: AgentClientAction[] = [];
   const relatedFindingCodes = new Set<string>();
 
-  const effectiveFromParam = parsedPeriod?.from ?? params.from;
-  const effectiveToParam = parsedPeriod?.to ?? params.to;
+  const daysOverride =
+    !parsedPeriod && intents.requestedDays
+      ? intents.requestedDays
+      : !parsedPeriod && !params.from && !params.to && params.screenContext?.days
+        ? Math.min(365, Math.max(1, Math.round(params.screenContext.days)))
+        : null;
+  const daysFromOverride = daysOverride
+    ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (daysOverride - 1)))
+        .toISOString()
+        .slice(0, 10)
+    : undefined;
+  const daysToOverride = daysOverride ? now.toISOString().slice(0, 10) : undefined;
+
+  const effectiveFromParam = parsedPeriod?.from ?? daysFromOverride ?? params.from;
+  const effectiveToParam = parsedPeriod?.to ?? daysToOverride ?? params.to;
   const month = parsedPeriod?.month ?? params.month ?? params.screenContext?.month ?? now.toISOString().slice(0, 7);
   const { from, to } = resolveDateRange(effectiveFromParam, effectiveToParam, now);
   const fromStr = from.toISOString().slice(0, 10);
@@ -2242,7 +2331,7 @@ export async function runFinanceAgentChat(params: {
   const periodLabel = parsedPeriod?.label[lang] ?? formatDateRangeLabel(fromStr, toStr, lang);
 
   const normalizedQ = question.trim().toLowerCase();
-  const screenCachePart = `${params.screenContext?.activeTab ?? ''}::${params.screenContext?.restaurantRoute ?? ''}::${params.screenContext?.activeCustomDashboardId ?? ''}::${(params.screenContext?.customDashboards ?? []).map(d => `${d.id}:${d.title}`).join('|')}::${activeDistrictId ?? ''}::${(params.screenContext?.summaryText ?? '').slice(0, 80)}`;
+  const screenCachePart = `${params.screenContext?.activeTab ?? ''}::${params.screenContext?.activeCustomDashboardId ?? ''}::${(params.screenContext?.customDashboards ?? []).map(d => `${d.id}:${d.title}`).join('|')}::${params.screenContext?.pinnedWidgetsCount ?? 0}::${activeDistrictId ?? ''}::${(params.screenContext?.summaryText ?? '').slice(0, 80)}`;
   const chatCacheKey =
     (params.history?.length ?? 0) === 0
       ? `${targetRestaurantId}::${lang}::${requestedModel}::${fromStr}::${toStr}::${month}::${params.totalBudget ?? ''}::${screenCachePart}::${normalizedQ}`
@@ -2262,30 +2351,37 @@ export async function runFinanceAgentChat(params: {
     intents.isSelectMainDashboard ||
     intents.isSelectCustomDashboard ||
     intents.isRemoveDashboardWidget ||
+    intents.isListDashboards ||
     intents.isPinWidget ||
     intents.isUnpinWidget;
+
+  const effectiveIsSales =
+    intents.isSales || (intents.isScreenQuestion && params.screenContext?.activeTab === 'sales');
+  const effectiveIsAudit =
+    intents.isAudit || (intents.isScreenQuestion && params.screenContext?.activeTab === 'audit');
 
   const hasSpecificIntent =
     intents.isMap ||
     intents.isBranchAlloc ||
     intents.isBudget ||
-    intents.isAudit ||
+    effectiveIsAudit ||
     intents.isWhatIf ||
-    intents.isSales ||
+    effectiveIsSales ||
     intents.isExpenseQuery ||
     intents.isPriorityQuery ||
     Boolean(parsedPeriod) ||
     hasDashboardControlIntent;
 
   const needExpenses =
-    Boolean(parsedPeriod) ||
     intents.isExpenseQuery ||
     intents.isPriorityQuery ||
-    intents.isAudit ||
-    intents.requestedCategories.length > 0;
+    effectiveIsAudit ||
+    intents.requestedCategories.length > 0 ||
+    (intents.isScreenQuestion && params.screenContext?.activeTab === 'expenses') ||
+    (Boolean(parsedPeriod) && !intents.isMap && !effectiveIsSales && !intents.isBudget && !intents.isBranchAlloc);
   const needGeo =
     intents.isMap ||
-    intents.isAudit ||
+    effectiveIsAudit ||
     (intents.isScreenQuestion && params.screenContext?.activeTab === 'map');
   const needBudget =
     intents.isBudget ||
@@ -2311,7 +2407,7 @@ export async function runFinanceAgentChat(params: {
     varianceData: null,
     branchData: null,
     scenarioData: null,
-    auditTriggered: intents.isAudit,
+    auditTriggered: effectiveIsAudit,
   };
 
   const jobs: Array<Promise<void>> = [
@@ -2460,8 +2556,6 @@ export async function runFinanceAgentChat(params: {
     if (intents.requestedDays) {
       autoActions.push({
         type: 'set_filters',
-        from: fromStr,
-        to: toStr,
         days: intents.requestedDays,
         label:
           lang === 'uz'
@@ -2529,12 +2623,14 @@ export async function runFinanceAgentChat(params: {
       },
       screenContext: {
         activeTab: params.screenContext?.activeTab ?? 'agent',
-        ...(params.screenContext?.restaurantRoute ? { restaurantRoute: params.screenContext.restaurantRoute } : {}),
         days: params.screenContext?.days ?? 30,
         month,
         districtId: activeDistrictId ?? '',
         visibleWidgets: params.screenContext?.visibleWidgets,
         summaryText: params.screenContext?.summaryText,
+        activeCustomDashboardId: params.screenContext?.activeCustomDashboardId ?? null,
+        customDashboards: params.screenContext?.customDashboards,
+        pinnedWidgetsCount: params.screenContext?.pinnedWidgetsCount ?? 0,
       },
       overview: {
         revenueUZS: Math.round(analysis.overview.revenue),
@@ -2626,7 +2722,7 @@ export async function runFinanceAgentChat(params: {
   let usedModel = requestedModel;
   let source: 'coarena' | 'heuristic' = 'heuristic';
 
-  if (env.COARENA_API_KEY) {
+  if (env.COARENA_API_KEY?.trim() || env.GEMINI_API_KEY?.trim()) {
     const FALLBACK_MCP_TOOL_NAMES = new Set([
       'get_expenses',
       'optimize_branch_budgets',
@@ -2667,20 +2763,21 @@ export async function runFinanceAgentChat(params: {
         ];
 
     const langName = lang === 'uz' ? 'Uzbek (Latin)' : lang === 'ru' ? 'Russian' : 'English';
+    const systemText = [
+      'You are the UzBite AI Financial Controller & Branch Advisor (Hackathon Cases #24, #25, #26 + Tashkent Geo Map).',
+      'Strictly use ONLY verified numbers from GroundTruth JSON and tool outputs. Never invent or round into new numbers.',
+      'Always state GroundTruth.resolvedPeriod explicitly in your reply when a date or period is discussed.',
+      'Prioritize Taxes (TAXES), Electricity/Utilities (UTILITIES, COMMUNICATION + kWh if present), and contrast Base (INGREDIENTS, SALARY, RENT) vs Additional expenses.',
+      'If GroundTruth.screenContext.summaryText is present and the user asks about the current screen/chart, explain it directly using screenContext and GroundTruth.',
+      `Write 2-3 sharp sentences strictly in ${langName} with concrete UZS figures and next steps.`,
+      'Return valid JSON: { "reply": string }.',
+    ].join('\n');
     const sysMsg: CoarenaMessage = {
       role: 'system',
-      content: [
-        'You are the UzBite AI Financial Controller & Branch Advisor (Hackathon Cases #24, #25, #26 + Tashkent Geo Map).',
-        'Strictly use ONLY verified numbers from GroundTruth JSON and tool outputs. Never invent or round into new numbers.',
-        'Always state GroundTruth.resolvedPeriod explicitly in your reply when a date or period is discussed.',
-        'Prioritize Taxes (TAXES), Electricity/Utilities (UTILITIES, COMMUNICATION + kWh if present), and contrast Base (INGREDIENTS, SALARY, RENT) vs Additional expenses.',
-        'If GroundTruth.screenContext.summaryText is present and the user asks about the current screen/chart, explain it directly using screenContext and GroundTruth.',
-        `Write 2-3 sharp sentences strictly in ${langName} with concrete UZS figures and next steps.`,
-        'Return valid JSON: { "reply": string }.',
-      ].join('\n'),
+      content: systemText,
     };
 
-    const historyMsgs: CoarenaMessage[] = (params.history ?? []).slice(-4).map(m => ({
+    const historyMsgs: CoarenaMessage[] = (params.history ?? []).slice(-8).map(m => ({
       role: m.role,
       content: m.content,
     }));
@@ -2693,20 +2790,26 @@ export async function runFinanceAgentChat(params: {
 
     const useToolsInRound1 = openEndedToolCalling || Boolean(intents.requestedNavTab);
     const tLlm = Date.now();
-    const res = await callCoarenaChat({
-      model: requestedModel,
-      messages: [sysMsg, ...historyMsgs, userMsg],
-      tools: useToolsInRound1 ? llmTools : undefined,
-      responseFormat: useToolsInRound1 ? undefined : { type: 'json_object' },
-      temperature: 0.15,
-      maxTokens: 360,
-      timeoutMs: 12_000,
-    });
+    const res = env.COARENA_API_KEY?.trim()
+      ? await callCoarenaChat({
+          model: requestedModel,
+          messages: [sysMsg, ...historyMsgs, userMsg],
+          tools: useToolsInRound1 ? llmTools : undefined,
+          responseFormat: useToolsInRound1 ? undefined : { type: 'json_object' },
+          temperature: 0.15,
+          maxTokens: 360,
+          timeoutMs: 12_000,
+        })
+      : null;
+
+    let finalMessageContent: string | null = null;
+    let llmProviderLabel = '';
 
     if (res) {
       requestId = res.requestId;
       usedModel = res.model;
-      let finalMessageContent = res.message.content;
+      llmProviderLabel = `coarena:${usedModel}`;
+      finalMessageContent = res.message.content;
       const toolCalls = res.message.tool_calls ?? [];
 
       if (toolCalls.length > 0) {
@@ -2761,6 +2864,29 @@ export async function runFinanceAgentChat(params: {
                 blockKind: blockKindArg,
                 label: `Remove ${blockKindArg} from dashboard`,
               });
+            } else if (act === 'pin_widget' && !intents.isPinWidget) {
+              const spec = buildCustomDashboardSpec({
+                lang,
+                restaurantName,
+                requestedCategories: intents.requestedCategories,
+                analysis,
+                varianceData: toolState.varianceData,
+                geoData: toolState.geoData,
+                branchData: toolState.branchData,
+                scenarioData: toolState.scenarioData,
+                customTitle: dTitle || intents.requestedDashboardTitle,
+                isSales: effectiveIsSales,
+                isAudit: effectiveIsAudit,
+                isBudget: intents.isBudget,
+              });
+              const pinBlock = spec.blocks.find(b => b.kind === 'chart' || b.kind === 'map' || b.kind === 'table') ?? spec.blocks[0];
+              if (pinBlock) {
+                autoActions.push({
+                  type: 'pin_widget',
+                  block: pinBlock,
+                  label: lang === 'uz' ? 'Vidjetni Dashboardga biriktirish' : lang === 'ru' ? 'Закрепить виджет на главном дашборде' : 'Pin Widget to Main Dashboard',
+                });
+              }
             } else if (act === 'unpin_widget') {
               autoActions.push({
                 type: 'unpin_widget',
@@ -2778,8 +2904,8 @@ export async function runFinanceAgentChat(params: {
                 branchData: toolState.branchData,
                 scenarioData: toolState.scenarioData,
                 customTitle: dTitle || intents.requestedDashboardTitle,
-                isSales: intents.isSales,
-                isAudit: intents.isAudit,
+                isSales: effectiveIsSales,
+                isAudit: effectiveIsAudit,
                 isBudget: intents.isBudget,
               });
               uiBlocks.push(...spec.blocks);
@@ -2800,8 +2926,8 @@ export async function runFinanceAgentChat(params: {
                 branchData: toolState.branchData,
                 scenarioData: toolState.scenarioData,
                 customTitle: dTitle || intents.requestedDashboardTitle,
-                isSales: intents.isSales,
-                isAudit: intents.isAudit,
+                isSales: effectiveIsSales,
+                isAudit: effectiveIsAudit,
                 isBudget: intents.isBudget,
               });
               uiBlocks.push(...spec.blocks);
@@ -2896,11 +3022,31 @@ export async function runFinanceAgentChat(params: {
           if (round2Res) {
             requestId = round2Res.requestId;
             usedModel = round2Res.model;
+            llmProviderLabel = `coarena:${usedModel}`;
             finalMessageContent = round2Res.message.content;
           }
         }
       }
+    } else if (env.GEMINI_API_KEY?.trim()) {
+      const geminiRes = await callGeminiAgentChat({
+        systemInstruction: systemText,
+        messages: [
+          ...(params.history ?? []).slice(-8),
+          { role: 'user', content: `Question: ${question}\nGroundTruth: ${JSON.stringify(initialGt.gt)}` },
+        ],
+        temperature: 0.15,
+        maxOutputTokens: 380,
+        timeoutMs: 12_000,
+      });
+      if (geminiRes) {
+        requestId = geminiRes.requestId;
+        usedModel = geminiRes.model;
+        llmProviderLabel = `gemini:${usedModel}`;
+        finalMessageContent = geminiRes.content;
+      }
+    }
 
+    if (res || finalMessageContent) {
       let replyText = '';
       if (finalMessageContent) {
         const parsed = extractJsonFromText(finalMessageContent) as { reply?: string; ru?: string; uz?: string; en?: string } | null;
@@ -2928,10 +3074,14 @@ export async function runFinanceAgentChat(params: {
           parsedPeriod,
           expenses: toolState.expensesPeriod,
           isExpenseQuery: needExpenses,
+          isSales: effectiveIsSales,
           geoData: intents.isMap || !toolState.auditTriggered ? toolState.geoData : null,
           varianceData: toolState.varianceData,
           branchData: toolState.branchData,
           scenarioData: toolState.scenarioData,
+          customDashboardTitle: intents.isCreateDashboard
+            ? (autoActions.find(a => a.type === 'create_dashboard') as { title?: string } | undefined)?.title ?? intents.requestedDashboardTitle ?? undefined
+            : undefined,
           screenSummaryText: intents.isScreenQuestion ? params.screenContext?.summaryText : undefined,
         });
         if (grounding.verified) {
@@ -2942,7 +3092,7 @@ export async function runFinanceAgentChat(params: {
           source = 'coarena';
         }
         traces.push({
-          tool: `coarena:${usedModel}`,
+          tool: llmProviderLabel || `coarena:${usedModel}`,
           args: { requestId, grounded: grounding.verified, matchedNumbers: grounding.matchedCount },
           durationMs: Date.now() - tLlm,
           summary: grounding.verified
@@ -2951,7 +3101,7 @@ export async function runFinanceAgentChat(params: {
         });
       } else {
         traces.push({
-          tool: `coarena:${usedModel}`,
+          tool: llmProviderLabel || `coarena:${usedModel}`,
           args: { requestId },
           durationMs: Date.now() - tLlm,
           summary: 'UI control tool call processed',
@@ -2976,9 +3126,10 @@ export async function runFinanceAgentChat(params: {
   }
 
   let dashboardControlNotice: Record<Language, string> | undefined;
+  const customDashboardsList = params.screenContext?.customDashboards;
   const activeDashId =
     params.screenContext?.activeCustomDashboardId ??
-    params.screenContext?.customDashboards?.[0]?.id;
+    customDashboardsList?.[0]?.id;
 
   if (intents.isCreateDashboard) {
     const spec = buildCustomDashboardSpec({
@@ -2991,8 +3142,8 @@ export async function runFinanceAgentChat(params: {
       branchData,
       scenarioData,
       customTitle: intents.requestedDashboardTitle,
-      isSales: intents.isSales,
-      isAudit: intents.isAudit,
+      isSales: effectiveIsSales,
+      isAudit: effectiveIsAudit,
       isBudget: intents.isBudget,
     });
     uiBlocks.push(...spec.blocks);
@@ -3021,8 +3172,8 @@ export async function runFinanceAgentChat(params: {
       branchData,
       scenarioData,
       customTitle: intents.requestedDashboardTitle,
-      isSales: intents.isSales,
-      isAudit: intents.isAudit,
+      isSales: effectiveIsSales,
+      isAudit: effectiveIsAudit,
       isBudget: intents.isBudget,
     });
     uiBlocks.push(...spec.blocks);
@@ -3152,50 +3303,77 @@ export async function runFinanceAgentChat(params: {
           uz: `Maxsus panel o‘chirildi. «${restaurantName}» asosiy paneliga qaytildi (tushum ${fmtUzs(analysis.overview.revenue)}).`,
           en: `Deleted custom dashboard and returned to ${restaurantName} overview (revenue ${fmtUzs(analysis.overview.revenue)}).`,
         };
+  } else if (intents.isListDashboards) {
+    const count = customDashboardsList?.length ?? 0;
+    const pinnedCount = params.screenContext?.pinnedWidgetsCount ?? 0;
+    const names = (customDashboardsList ?? []).map(d => `«${d.title}» (${d.blockCount})`).join(', ');
+    if (customDashboardsList && customDashboardsList.length > 0) {
+      uiBlocks.push({
+        id: 'blk-dashboards-list',
+        kind: 'table',
+        title: lang === 'uz' ? 'Maxsus panellar' : lang === 'ru' ? 'Кастомные дашборды' : 'Custom Dashboards',
+        columns: lang === 'uz' ? ['Nomi', 'Vidjetlar'] : lang === 'ru' ? ['Название', 'Блоки'] : ['Title', 'Blocks'],
+        rows: customDashboardsList.map(d => [d.title, d.blockCount]),
+      });
+    }
+    dashboardControlNotice = {
+      ru: count > 0 ? `У вас ${count} кастомных дашбордов: ${names}. Закреплено виджетов: ${pinnedCount}.` : `Кастомных дашбордов пока нет (закреплено виджетов: ${pinnedCount}). Могу создать новый — просто напишите тему.`,
+      uz: count > 0 ? `Sizda ${count} ta maxsus panel bor: ${names}. Biriktirilgan vidjetlar: ${pinnedCount}.` : `Hozircha maxsus panellar yo‘q (biriktirilgan vidjetlar: ${pinnedCount}). Yangisini yaratish uchun mavzuni yozing.`,
+      en: count > 0 ? `You have ${count} custom dashboards: ${names}. Pinned widgets: ${pinnedCount}.` : `No custom dashboards yet (pinned widgets: ${pinnedCount}). Ask me to create one anytime.`,
+    };
   } else if (intents.isSelectMainDashboard || intents.isSelectCustomDashboard) {
     const selectMain = intents.isSelectMainDashboard;
-    const matchedCustom = !selectMain
-      ? (params.screenContext?.customDashboards ?? []).find(d =>
-          intents.requestedDashboardTitle
-            ? d.title.toLowerCase().includes(intents.requestedDashboardTitle.toLowerCase())
-            : question.toLowerCase().includes(d.title.toLowerCase()),
-        ) ?? params.screenContext?.customDashboards?.[0]
-      : null;
-    const selAction: AgentClientAction = {
-      type: 'select_dashboard',
-      dashboardId: selectMain ? null : (matchedCustom?.id ?? 'latest'),
-      titleMatch: selectMain ? undefined : (intents.requestedDashboardTitle ?? question),
-      label: selectMain
-        ? lang === 'uz'
-          ? 'Asosiy dashboardni ochish'
-          : lang === 'ru'
-            ? 'Открыть главный дашборд (Обзор)'
-            : 'Switch to Main Overview Dashboard'
-        : lang === 'uz'
-          ? `Dashboardni ochish: ${matchedCustom?.title ?? 'Maxsus'}`
-          : lang === 'ru'
-            ? `Открыть дашборд: ${matchedCustom?.title ?? 'Кастомный'}`
-            : `Switch to Dashboard: ${matchedCustom?.title ?? 'Custom'}`,
-    };
-    autoActions.push(selAction);
-    suggestedActions.push(selAction);
-    traces.push({
-      tool: 'control_app_dashboard',
-      args: { action: 'select_dashboard', target: selectMain ? 'main' : (matchedCustom?.title ?? 'latest') },
-      durationMs: 1,
-      summary: selectMain ? 'Switched to main overview dashboard' : `Switched to custom dashboard "${matchedCustom?.title ?? 'latest'}"`,
-    });
-    dashboardControlNotice = selectMain
-      ? {
-          ru: `Переключено на главный дашборд «${restaurantName}» (выручка ${fmtUzs(analysis.overview.revenue)}, чистая прибыль ${fmtUzs(analysis.overview.netProfit)}).`,
-          uz: `«${restaurantName}» asosiy paneliga o‘tildi (tushum ${fmtUzs(analysis.overview.revenue)}, sof foyda ${fmtUzs(analysis.overview.netProfit)}).`,
-          en: `Switched to the main overview dashboard for ${restaurantName} (revenue ${fmtUzs(analysis.overview.revenue)}, net profit ${fmtUzs(analysis.overview.netProfit)}).`,
-        }
-      : {
-          ru: `Открыт кастомный дашборд «${matchedCustom?.title ?? 'AI Dashboard'}» по «${restaurantName}» (выручка ${fmtUzs(analysis.overview.revenue)}).`,
-          uz: `«${restaurantName}» bo‘yicha «${matchedCustom?.title ?? 'AI Dashboard'}» maxsus paneli ochildi (tushum ${fmtUzs(analysis.overview.revenue)}).`,
-          en: `Opened custom dashboard "${matchedCustom?.title ?? 'AI Dashboard'}" for ${restaurantName} (revenue ${fmtUzs(analysis.overview.revenue)}).`,
-        };
+    const hasEmptyCustomList = !selectMain && Array.isArray(customDashboardsList) && customDashboardsList.length === 0;
+    if (hasEmptyCustomList) {
+      dashboardControlNotice = {
+        ru: `Кастомных дашбордов для «${restaurantName}» пока нет (выручка ${fmtUzs(analysis.overview.revenue)}). Попросите меня создать дашборд, например по налогам или бюджетам.`,
+        uz: `«${restaurantName}» uchun maxsus panellar hali yaratilmagan (tushum ${fmtUzs(analysis.overview.revenue)}). Yangi panel yaratishni so‘rang.`,
+        en: `No custom dashboards exist yet for ${restaurantName} (revenue ${fmtUzs(analysis.overview.revenue)}). Ask me to create one first.`,
+      };
+    } else {
+      const matchedCustom = !selectMain
+        ? (customDashboardsList ?? []).find(d =>
+            intents.requestedDashboardTitle
+              ? d.title.toLowerCase().includes(intents.requestedDashboardTitle.toLowerCase())
+              : question.toLowerCase().includes(d.title.toLowerCase()),
+          ) ?? customDashboardsList?.[0]
+        : null;
+      const selAction: AgentClientAction = {
+        type: 'select_dashboard',
+        dashboardId: selectMain ? null : (matchedCustom?.id ?? 'latest'),
+        titleMatch: selectMain ? undefined : (intents.requestedDashboardTitle ?? question),
+        label: selectMain
+          ? lang === 'uz'
+            ? 'Asosiy dashboardni ochish'
+            : lang === 'ru'
+              ? 'Открыть главный дашборд (Обзор)'
+              : 'Switch to Main Overview Dashboard'
+          : lang === 'uz'
+            ? `Dashboardni ochish: ${matchedCustom?.title ?? 'Maxsus'}`
+            : lang === 'ru'
+              ? `Открыть дашборд: ${matchedCustom?.title ?? 'Кастомный'}`
+              : `Switch to Dashboard: ${matchedCustom?.title ?? 'Custom'}`,
+      };
+      autoActions.push(selAction);
+      suggestedActions.push(selAction);
+      traces.push({
+        tool: 'control_app_dashboard',
+        args: { action: 'select_dashboard', target: selectMain ? 'main' : (matchedCustom?.title ?? 'latest') },
+        durationMs: 1,
+        summary: selectMain ? 'Switched to main overview dashboard' : `Switched to custom dashboard "${matchedCustom?.title ?? 'latest'}"`,
+      });
+      dashboardControlNotice = selectMain
+        ? {
+            ru: `Переключено на главный дашборд «${restaurantName}» (выручка ${fmtUzs(analysis.overview.revenue)}, чистая прибыль ${fmtUzs(analysis.overview.netProfit)}).`,
+            uz: `«${restaurantName}» asosiy paneliga o‘tildi (tushum ${fmtUzs(analysis.overview.revenue)}, sof foyda ${fmtUzs(analysis.overview.netProfit)}).`,
+            en: `Switched to the main overview dashboard for ${restaurantName} (revenue ${fmtUzs(analysis.overview.revenue)}, net profit ${fmtUzs(analysis.overview.netProfit)}).`,
+          }
+        : {
+            ru: `Открыт кастомный дашборд «${matchedCustom?.title ?? 'AI Dashboard'}» по «${restaurantName}» (выручка ${fmtUzs(analysis.overview.revenue)}).`,
+            uz: `«${restaurantName}» bo‘yicha «${matchedCustom?.title ?? 'AI Dashboard'}» maxsus paneli ochildi (tushum ${fmtUzs(analysis.overview.revenue)}).`,
+            en: `Opened custom dashboard "${matchedCustom?.title ?? 'AI Dashboard'}" for ${restaurantName} (revenue ${fmtUzs(analysis.overview.revenue)}).`,
+          };
+    }
   } else {
     if (geoData && (intents.isMap || !toolState.auditTriggered)) {
       const g: DistrictGeoAnalysisResponse = geoData;
@@ -3373,6 +3551,41 @@ export async function runFinanceAgentChat(params: {
       });
     }
 
+    const explicitAuditKeywords = /(ошиб|дубл|аудит|xato|dublikat|audit|error|duplicate|(?:#|кейс\s*#?|case\s*#?|keys\s*#?)\s*26\b)/i.test(question);
+
+    if (
+      needExpenses &&
+      intents.isPriorityQuery &&
+      !explicitAuditKeywords
+    ) {
+      const builtPriority = buildPriorityExpenseBlocks({
+        lang,
+        periodLabel,
+        fromStr,
+        toStr,
+        overview: analysis.overview,
+        expenses: toolState.expensesPeriod,
+        requestedCategories: intents.requestedCategories,
+      });
+      for (const blk of builtPriority.blocks) {
+        if (!uiBlocks.some(b => b.id === blk.id)) {
+          uiBlocks.push(blk);
+        }
+      }
+      if (!suggestedActions.some(a => a.type === 'navigate' && a.tab === 'expenses')) {
+        suggestedActions.push({
+          type: 'navigate',
+          tab: 'expenses',
+          label:
+            lang === 'uz'
+              ? 'Xarajatlar bo‘limini ochish'
+              : lang === 'ru'
+                ? 'Открыть журнал расходов'
+                : 'Open Expenses Tab',
+        });
+      }
+    }
+
     if (toolState.auditTriggered) {
       const lossFindings = geoData ? buildLossDeliveryAuditFindings(geoData) : [];
       const mergedFindings = [...analysis.findings, ...lossFindings];
@@ -3459,7 +3672,7 @@ export async function runFinanceAgentChat(params: {
       });
     }
 
-    if (intents.isSales && analysis.dishes && analysis.dishes.length > 0 && uiBlocks.length === 0) {
+    if (effectiveIsSales && analysis.dishes && analysis.dishes.length > 0 && uiBlocks.length === 0) {
       uiBlocks.push({
         id: 'blk-sales-chart',
         kind: 'chart',
@@ -3492,10 +3705,7 @@ export async function runFinanceAgentChat(params: {
       });
     }
 
-    if (
-      needExpenses &&
-      (Boolean(parsedPeriod) || intents.isExpenseQuery || intents.isPriorityQuery)
-    ) {
+    if (needExpenses) {
       const builtPriority = buildPriorityExpenseBlocks({
         lang,
         periodLabel,
@@ -3601,7 +3811,8 @@ export async function runFinanceAgentChat(params: {
       toStr,
       parsedPeriod,
       expenses: toolState.expensesPeriod,
-      isExpenseQuery: needExpenses && (Boolean(parsedPeriod) || intents.isExpenseQuery || intents.isPriorityQuery),
+      isExpenseQuery: needExpenses,
+      isSales: effectiveIsSales,
       geoData: intents.isMap || !toolState.auditTriggered ? geoData : null,
       varianceData,
       branchData,
@@ -3641,6 +3852,7 @@ export function buildDeterministicAgentAnswer(params: {
   parsedPeriod?: ParsedDatePeriod | null;
   expenses?: AnalysisExpenseInput[];
   isExpenseQuery?: boolean;
+  isSales?: boolean;
   geoData: DistrictGeoAnalysisResponse | null;
   varianceData: BudgetVarianceItem[] | null;
   branchData: BranchAllocationResponse | null;
@@ -3657,6 +3869,7 @@ export function buildDeterministicAgentAnswer(params: {
     parsedPeriod,
     expenses,
     isExpenseQuery,
+    isSales,
     geoData,
     varianceData,
     branchData,
@@ -3723,6 +3936,16 @@ export function buildDeterministicAgentAnswer(params: {
       ru: `Сценарий (свет ${a.utilityTariffPct}%, сырьё ${a.foodInflationPct}%, аренда ${a.rentChangePct}%, заказы ${a.orderVolumeChangePct}%): прибыль изменится с ${fmtUzs(scenarioData.baseline.netProfit)} до ${fmtUzs(scenarioData.projected.netProfit)} (${fmtUzs(scenarioData.projected.profitDelta)}).`,
       uz: `Ssenariy (elektr ${a.utilityTariffPct}%, masalliq ${a.foodInflationPct}%, ijara ${a.rentChangePct}%, buyurtma ${a.orderVolumeChangePct}%): foyda ${fmtUzs(scenarioData.baseline.netProfit)} dan ${fmtUzs(scenarioData.projected.netProfit)} gacha o‘zgaradi (${fmtUzs(scenarioData.projected.profitDelta)}).`,
       en: `Scenario (util ${a.utilityTariffPct}%, food ${a.foodInflationPct}%, rent ${a.rentChangePct}%, orders ${a.orderVolumeChangePct}%): net profit shifts from ${fmtUzs(scenarioData.baseline.netProfit)} to ${fmtUzs(scenarioData.projected.netProfit)} (${fmtUzs(scenarioData.projected.profitDelta)}).`,
+    };
+  }
+  if (isSales && analysis.dishes && analysis.dishes.length > 0) {
+    const topDish = analysis.dishes[0]!;
+    const secondDish = analysis.dishes[1];
+    const dogs = analysis.dishes.filter(d => d.quadrant === 'DOG' || d.marginPct < 0).length;
+    return {
+      ru: `Период: ${periodRu}. По продажам и меню «${restaurantName}»: выручка ${fmtUzs(analysis.overview.revenue)}, Food Cost ${analysis.overview.foodCostPct.toFixed(1)}%. Лидер — «${topDish.name}» (${topDish.quantitySold} порц., ${fmtUzs(topDish.revenue)}, маржа ${topDish.marginPct}%)${secondDish ? `, далее «${secondDish.name}» (${fmtUzs(secondDish.revenue)})` : ''}. ${dogs > 0 ? `Позиций в зоне пересмотра (DOG/низкая маржа): ${dogs}.` : 'Все ключевые позиции меню рентабельны.'}`,
+      uz: `Davr: ${periodUz}. «${restaurantName}» savdo va menyu tahlili: tushum ${fmtUzs(analysis.overview.revenue)}, Food Cost ${analysis.overview.foodCostPct.toFixed(1)}%. Yetakchi taom — «${topDish.name}» (${topDish.quantitySold} dona, ${fmtUzs(topDish.revenue)}, marja ${topDish.marginPct}%)${secondDish ? `, keyingi «${secondDish.name}» (${fmtUzs(secondDish.revenue)})` : ''}. ${dogs > 0 ? `Qayta ko‘rib chiqish kerak bo‘lgan pozitsiyalar: ${dogs} ta.` : 'Menyuning asosiy taomlari foydali.'}`,
+      en: `Period: ${periodEn}. ${restaurantName} sales & menu engineering: revenue ${fmtUzs(analysis.overview.revenue)}, Food Cost ${analysis.overview.foodCostPct.toFixed(1)}%. Top dish is "${topDish.name}" (${topDish.quantitySold} sold, ${fmtUzs(topDish.revenue)}, ${topDish.marginPct}% margin)${secondDish ? `, followed by "${secondDish.name}" (${fmtUzs(secondDish.revenue)})` : ''}. ${dogs > 0 ? `${dogs} menu items need pricing or cost review.` : 'Core menu margins are healthy.'}`,
     };
   }
   if (isExpenseQuery || parsedPeriod) {
